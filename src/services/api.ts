@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'https://chatapp-backend-tp00.onrender.com/api';
 
 interface LoginData {
   email: string;

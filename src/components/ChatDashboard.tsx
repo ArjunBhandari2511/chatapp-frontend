@@ -711,6 +711,16 @@ const ChatDashboard = () => {
     }
   };
 
+  // Before creating the peer connection, always initialize remoteStreamRef
+  const ensureRemoteStream = () => {
+    if (!remoteStreamRef.current) {
+      remoteStreamRef.current = new MediaStream();
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    }
+  };
+
   // Accept/Reject handlers
   const handleAcceptCall = async () => {
     if (!incomingCall || !socketRef.current) return;
@@ -768,6 +778,8 @@ const ChatDashboard = () => {
       setCallType(data.type);
       // Start local stream
       const localStream = await startLocalStream(data.type);
+      // Ensure remote stream is initialized and attached
+      ensureRemoteStream();
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
@@ -775,10 +787,10 @@ const ChatDashboard = () => {
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       // Handle remote stream
       pc.ontrack = (event) => {
-        if (!remoteStreamRef.current) {
-          remoteStreamRef.current = new MediaStream();
-        }
-        remoteStreamRef.current.addTrack(event.track);
+        // Add all tracks from the remote stream
+        event.streams[0].getTracks().forEach(track => {
+          remoteStreamRef.current.addTrack(track);
+        });
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStreamRef.current;
         }
@@ -787,7 +799,7 @@ const ChatDashboard = () => {
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           socketRef.current?.emit('iceCandidate', {
-            to: data.from._id || data.from.id || data.from,
+            to: data.from,
             candidate: event.candidate,
             roomId: data.roomId,
           });
@@ -797,7 +809,7 @@ const ChatDashboard = () => {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socketRef.current.emit('webrtcOffer', {
-        to: data.from._id || data.from.id || data.from,
+        to: data.from,
         offer,
         roomId: data.roomId,
       });
@@ -818,6 +830,8 @@ const ChatDashboard = () => {
       setCallType(data.type);
       // Start local stream
       const localStream = await startLocalStream(data.type);
+      // Ensure remote stream is initialized and attached
+      ensureRemoteStream();
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
@@ -825,10 +839,10 @@ const ChatDashboard = () => {
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       // Handle remote stream
       pc.ontrack = (event) => {
-        if (!remoteStreamRef.current) {
-          remoteStreamRef.current = new MediaStream();
-        }
-        remoteStreamRef.current.addTrack(event.track);
+        // Add all tracks from the remote stream
+        event.streams[0].getTracks().forEach(track => {
+          remoteStreamRef.current.addTrack(track);
+        });
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStreamRef.current;
         }
@@ -837,7 +851,7 @@ const ChatDashboard = () => {
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           socketRef.current?.emit('iceCandidate', {
-            to: data.from._id || data.from.id || data.from,
+            to: data.from,
             candidate: event.candidate,
             roomId: data.roomId,
           });
@@ -849,7 +863,7 @@ const ChatDashboard = () => {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socketRef.current.emit('webrtcAnswer', {
-        to: data.from._id || data.from.id || data.from,
+        to: data.from,
         answer,
         roomId: data.roomId,
       });

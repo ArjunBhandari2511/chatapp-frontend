@@ -761,11 +761,11 @@ const ChatDashboard = () => {
     setIncomingCall(null);
   };
 
-  // Add WebRTC config (STUN servers)
-  const rtcConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-    ],
+  // Remove static rtcConfig. Instead, fetch ICE servers from backend before creating RTCPeerConnection
+  const fetchIceServers = async () => {
+    const response = await fetch('/api/ice-servers');
+    if (!response.ok) throw new Error('Failed to fetch ICE servers');
+    return await response.json();
   };
 
   // Handle callAccepted event (for caller)
@@ -780,6 +780,13 @@ const ChatDashboard = () => {
       const localStream = await startLocalStream(data.type);
       // Ensure remote stream is initialized and attached
       ensureRemoteStream();
+      // Fetch ICE servers from backend
+      let rtcConfig = { iceServers: [] };
+      try {
+        rtcConfig.iceServers = await fetchIceServers();
+      } catch (err) {
+        console.error('Failed to fetch ICE servers:', err);
+      }
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
@@ -787,7 +794,6 @@ const ChatDashboard = () => {
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       // Handle remote stream
       pc.ontrack = (event) => {
-        // Add all tracks from the remote stream
         event.streams[0].getTracks().forEach(track => {
           remoteStreamRef.current.addTrack(track);
         });
@@ -832,6 +838,13 @@ const ChatDashboard = () => {
       const localStream = await startLocalStream(data.type);
       // Ensure remote stream is initialized and attached
       ensureRemoteStream();
+      // Fetch ICE servers from backend
+      let rtcConfig = { iceServers: [] };
+      try {
+        rtcConfig.iceServers = await fetchIceServers();
+      } catch (err) {
+        console.error('Failed to fetch ICE servers:', err);
+      }
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
@@ -839,7 +852,6 @@ const ChatDashboard = () => {
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       // Handle remote stream
       pc.ontrack = (event) => {
-        // Add all tracks from the remote stream
         event.streams[0].getTracks().forEach(track => {
           remoteStreamRef.current.addTrack(track);
         });

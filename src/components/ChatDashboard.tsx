@@ -31,6 +31,35 @@ import UploadProgress from './UploadProgress';
 import ImagePreview from './ImagePreview';
 import ProfileSettings from './ProfileSettings';
 
+// Add TypeScript global declaration for window.externalIceServers
+declare global {
+  interface Window {
+    externalIceServers?: RTCIceServer[];
+  }
+}
+
+// Set Twilio ICE servers globally for WebRTC
+window.externalIceServers = [
+  {
+    urls: 'stun:global.stun.twilio.com:3478'
+  },
+  {
+    urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
+    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
+  },
+  {
+    urls: 'turn:global.turn.twilio.com:3478?transport=tcp',
+    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
+    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
+  },
+  {
+    urls: 'turn:global.turn.twilio.com:443?transport=tcp',
+    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
+    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
+  }
+];
+
 const ChatDashboard = () => {
   const [message, setMessage] = useState('');
   const [activeChat, setActiveChat] = useState<string | null>(null);
@@ -762,10 +791,12 @@ const ChatDashboard = () => {
   };
 
   // Remove static rtcConfig. Instead, fetch ICE servers from backend before creating RTCPeerConnection
-  const fetchIceServers = async () => {
-    const response = await fetch('/api/ice-servers');
-    if (!response.ok) throw new Error('Failed to fetch ICE servers');
-    return await response.json();
+  const getRtcConfig = () => {
+    if (window.externalIceServers) {
+      return { iceServers: window.externalIceServers };
+    }
+    // fallback for dev
+    return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   };
 
   // Handle callAccepted event (for caller)
@@ -780,13 +811,8 @@ const ChatDashboard = () => {
       const localStream = await startLocalStream(data.type);
       // Ensure remote stream is initialized and attached
       ensureRemoteStream();
-      // Fetch ICE servers from backend
-      let rtcConfig = { iceServers: [] };
-      try {
-        rtcConfig.iceServers = await fetchIceServers();
-      } catch (err) {
-        console.error('Failed to fetch ICE servers:', err);
-      }
+      // Use provided ICE servers or fallback
+      const rtcConfig = getRtcConfig();
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
@@ -838,13 +864,8 @@ const ChatDashboard = () => {
       const localStream = await startLocalStream(data.type);
       // Ensure remote stream is initialized and attached
       ensureRemoteStream();
-      // Fetch ICE servers from backend
-      let rtcConfig = { iceServers: [] };
-      try {
-        rtcConfig.iceServers = await fetchIceServers();
-      } catch (err) {
-        console.error('Failed to fetch ICE servers:', err);
-      }
+      // Use provided ICE servers or fallback
+      const rtcConfig = getRtcConfig();
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;

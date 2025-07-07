@@ -30,13 +30,14 @@ const UploadProgress: React.FC<UploadProgressProps> = ({
   };
 
   const getStatusText = () => {
+    const isImage = fileName ? /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName) : false;
     switch (status) {
       case 'compressing':
-        return 'Compressing image...';
+        return isImage ? 'Compressing image...' : '';
       case 'uploading':
-        return 'Uploading image...';
+        return isImage ? 'Uploading image...' : 'Uploading file...';
       case 'completed':
-        return 'Upload completed!';
+        return isImage ? 'Upload completed!' : 'File uploaded successfully!';
       case 'error':
         return errorMessage || 'Upload failed';
       default:
@@ -81,7 +82,9 @@ const UploadProgress: React.FC<UploadProgressProps> = ({
       
       {status === 'completed' && (
         <div className="text-xs text-green-600">
-          Image uploaded successfully
+          {fileName && /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName)
+            ? 'Image uploaded successfully'
+            : 'File uploaded successfully'}
         </div>
       )}
       

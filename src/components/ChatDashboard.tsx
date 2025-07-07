@@ -16,11 +16,12 @@ import {
   Trash,
   Loader2,
   Image as ImageIcon,
-  X
+  X,
+  Paperclip
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
-import { fetchChannels, fetchUsers, createChannel, deleteChannel, getCurrentUserId, fetchChannelMessages, sendChannelMessage, fetchDirectMessages, sendDirectMessage, getAuthToken, uploadImage, fetchCurrentUserProfile } from '@/services/api';
+import { fetchChannels, fetchUsers, createChannel, deleteChannel, getCurrentUserId, fetchChannelMessages, sendChannelMessage, fetchDirectMessages, sendDirectMessage, getAuthToken, uploadImage, fetchCurrentUserProfile, uploadFile } from '@/services/api';
 import { compressImage, validateImageFile } from '@/utils/imageCompression';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
@@ -95,6 +96,7 @@ const ChatDashboard = () => {
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileFileInputRef = useRef<HTMLInputElement>(null);
   const activeChatRef = useRef(activeChat);
   const channelsRef = useRef(channels);
   const directMessagesRef = useRef(directMessages);
@@ -704,6 +706,60 @@ const ChatDashboard = () => {
     directMessagesRef.current = directMessages;
   }, [directMessages]);
 
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true); // Reuse uploadingImage state for now
+    setUploadProgress(0);
+    setUploadStatus('uploading');
+    setUploadFileName(file.name);
+    setUploadError('');
+    try {
+      // Upload file to backend
+      const result = await uploadFile(file, (progress) => setUploadProgress(progress));
+      // Prepare file message data
+      const channel = channels.find(c => (c._id || c.id) === activeChat);
+      const user = directMessages.find(u => (u._id || u.id) === activeChat);
+      let chatId = '';
+      let type: 'channel' | 'direct' = 'channel';
+      let to = undefined;
+      if (channel) {
+        chatId = channel._id || channel.id;
+        type = 'channel';
+      } else if (user && currentUserId) {
+        chatId = [currentUserId, user._id || user.id].sort().join('-');
+        type = 'direct';
+        to = user._id || user.id;
+      }
+      // Emit fileMessage event
+      socketRef.current?.emit('fileMessage', {
+        fileUrl: result.fileUrl,
+        fileName: result.fileName,
+        fileSize: result.fileSize,
+        fileType: result.fileType,
+        from: currentUserId,
+        to,
+        chatId,
+        timestamp: new Date().toISOString(),
+        type,
+      });
+      setUploadStatus('completed');
+    } catch (err: any) {
+      setUploadStatus('error');
+      setUploadError(err.message || 'Failed to upload file');
+    } finally {
+      setUploadingImage(false);
+      setTimeout(() => {
+        setUploadProgress(0);
+        setUploadFileName('');
+        setUploadStatus('compressing');
+        setUploadError('');
+      }, 2000);
+      if (fileFileInputRef.current) fileFileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
@@ -1063,6 +1119,22 @@ const ChatDashboard = () => {
                     <p>Upload image (max 10MB)</p>
                   </TooltipContent>
                 </Tooltip>
+                {/* File upload button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={() => fileFileInputRef.current?.click()}
+                      variant="outline"
+                      className="h-12 w-12 p-0"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Upload file (PDF, DOC, ZIP, etc.)</p>
+                  </TooltipContent>
+                </Tooltip>
                 <Button
                   type="submit"
                   disabled={!message.trim()}
@@ -1077,6 +1149,14 @@ const ChatDashboard = () => {
                 type="file"
                 accept="image/*"
                 onChange={handleImageUpload}
+                style={{ display: 'none' }}
+              />
+              {/* Hidden file input for file upload */}
+              <input
+                ref={fileFileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,application/x-zip-compressed,text/plain,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                onChange={handleFileUpload}
                 style={{ display: 'none' }}
               />
             </div>

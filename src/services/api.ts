@@ -400,3 +400,62 @@ export const fetchCurrentUserProfile = async (): Promise<any> => {
   }
   return resData.user;
 };
+
+export const uploadFile = async (
+  file: File,
+  onProgress?: (progress: number) => void
+): Promise<{ fileUrl: string; fileName: string; fileSize: number; fileType: string; publicId: string }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+
+  return new Promise((resolve, reject) => {
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && onProgress) {
+        const progress = (event.loaded / event.total) * 100;
+        onProgress(progress);
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const resData = JSON.parse(xhr.responseText);
+          resolve({
+            fileUrl: resData.fileUrl,
+            fileName: resData.fileName,
+            fileSize: resData.fileSize,
+            fileType: resData.fileType,
+            publicId: resData.publicId,
+          });
+        } catch (error) {
+          reject(new Error('Failed to parse response'));
+        }
+      } else {
+        try {
+          const resData = JSON.parse(xhr.responseText);
+          reject(new Error(resData.message || 'Upload failed'));
+        } catch {
+          reject(new Error('Upload failed'));
+        }
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('Network error'));
+    });
+
+    xhr.addEventListener('abort', () => {
+      reject(new Error('Upload cancelled'));
+    });
+
+    xhr.open('POST', `${API_BASE_URL}/upload/files/upload`);
+    // Add auth headers
+    const token = getAuthToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.send(formData);
+  });
+};

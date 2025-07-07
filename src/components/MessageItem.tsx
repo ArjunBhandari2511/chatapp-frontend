@@ -9,7 +9,11 @@ import {
   Check, 
   X,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  FileText,
+  FileArchive,
+  FileSpreadsheet,
+  File
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -36,7 +40,7 @@ interface MessageItemProps {
     _id?: string;
     id?: string;
     content: string;
-    messageType?: 'text' | 'image';
+    messageType?: 'text' | 'image' | 'file';
     imageUrl?: string;
     isDeleted?: boolean;
     isEdited?: boolean;
@@ -49,6 +53,10 @@ interface MessageItemProps {
       profilePicture?: string;
     };
     createdAt: string;
+    fileUrl?: string;
+    fileType?: string;
+    fileName?: string;
+    fileSize?: number;
   };
   isCurrentUser: boolean;
   onMessageEdit?: (messageId: string, newContent: string) => void;
@@ -309,6 +317,30 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          ) : message.messageType === 'file' && message.fileUrl ? (
+            <div className="mt-2 flex items-center gap-3">
+              {/* File icon based on type */}
+              {(() => {
+                if (message.fileType?.includes('pdf')) return <FileText className="h-7 w-7 text-red-500" />;
+                if (message.fileType?.includes('word')) return <FileText className="h-7 w-7 text-blue-600" />;
+                if (message.fileType?.includes('spreadsheet') || message.fileType?.includes('excel') || message.fileType?.includes('sheet')) return <FileSpreadsheet className="h-7 w-7 text-green-600" />;
+                if (message.fileType?.includes('zip')) return <FileArchive className="h-7 w-7 text-yellow-600" />;
+                if (message.fileType?.includes('text')) return <FileText className="h-7 w-7 text-gray-600" />;
+                return <File className="h-7 w-7 text-gray-400" />;
+              })()}
+              <div className="flex flex-col">
+                <a
+                  href={message.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={message.fileName}
+                  className="font-medium text-blue-700 hover:underline break-all"
+                >
+                  {message.fileName || 'Download file'}
+                </a>
+                <span className="text-xs text-gray-500">{message.fileSize ? `${(message.fileSize / 1024).toFixed(1)} KB` : ''}</span>
+              </div>
             </div>
           ) : (
             <div>

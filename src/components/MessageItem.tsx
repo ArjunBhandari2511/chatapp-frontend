@@ -253,7 +253,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               : 'bg-gray-200 text-gray-900 rounded-bl-md mr-8 hover:bg-gray-300 transition-colors duration-200'}
           `}
         >
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 relative">
             <span className="font-semibold text-xs">
               {isCurrentUser ? 'You' : message.sender?.displayName || message.sender?.username || 'Unknown'}
             </span>
@@ -262,6 +262,40 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </span>
             {message.isEdited && (
               <span className="text-[10px] opacity-70 bg-black/10 px-1.5 py-0.5 rounded-full">edited</span>
+            )}
+            {/* Three-dot menu for current user's messages - always visible, right of time, smaller */}
+            {isCurrentUser && !isEditing && (
+              <DropdownMenu open={showMenu} onOpenChange={setShowMenu}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-1 p-0 h-5 w-5 min-w-0 min-h-0 flex items-center justify-center rounded-full shadow-none bg-transparent hover:bg-black/10 focus:bg-black/10"
+                    tabIndex={0}
+                    aria-label="More options"
+                  >
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem 
+                    onClick={handleEditClick} 
+                    disabled={isLoading}
+                    className="cursor-pointer hover:bg-blue-50"
+                  >
+                    <Edit className="h-4 w-4 mr-2 text-blue-600" />
+                    <span>Edit Message</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={handleDeleteClick} 
+                    disabled={isLoading}
+                    className="cursor-pointer hover:bg-red-50 text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    <span>Delete Message</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
           
@@ -385,40 +419,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          {/* Three-dot menu for current user's messages */}
-          {isCurrentUser && !isEditing && (
-            <DropdownMenu open={showMenu} onOpenChange={setShowMenu}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute top-1/2 right-[-18px] -translate-y-1/2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-black/10 rounded-full shadow"
-                  tabIndex={0}
-                  aria-label="More options"
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem 
-                  onClick={handleEditClick} 
-                  disabled={isLoading}
-                  className="cursor-pointer hover:bg-blue-50"
-                >
-                  <Edit className="h-4 w-4 mr-2 text-blue-600" />
-                  <span>Edit Message</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={handleDeleteClick} 
-                  disabled={isLoading}
-                  className="cursor-pointer hover:bg-red-50 text-red-600"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  <span>Delete Message</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
         </div>
         {isCurrentUser && (
           <Avatar className="h-8 w-8 ml-2">

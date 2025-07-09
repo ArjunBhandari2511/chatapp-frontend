@@ -108,6 +108,7 @@ const ChatDashboard = () => {
     from: any;
     type: 'audio' | 'video';
     roomId: string;
+    offer?: RTCSessionDescriptionInit;
   }>(null);
   const [incomingCallModalOpen, setIncomingCallModalOpen] = React.useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -172,7 +173,7 @@ const ChatDashboard = () => {
 
   // Connect to Socket.IO server on mount
   React.useEffect(() => {
-    const socket = io('ws://localhost:5000', {
+    const socket = io('wss://chatapp-backend-tp00.onrender.com', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });
@@ -830,6 +831,237 @@ const ChatDashboard = () => {
     }
   };
 
+  // --- WebRTC Helper Functions ---
+  const getMedia = async (type: 'audio' | 'video') => {
+    if (type === 'video') {
+      return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } else {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+  };
+
+  const createPeerConnection = (toUserId: string) => {
+    const pc = new RTCPeerConnection({ iceServers: window.externalIceServers });
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current && currentUserId) {
+        socketRef.current.emit('call:ice-candidate', {
+          to: toUserId,
+          candidate: event.candidate,
+        });
+      }
+    };
+    pc.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        if (!remoteStreamRef.current) {
+          remoteStreamRef.current = new MediaStream();
+        }
+        remoteStreamRef.current.addTrack(event.track);
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
+    };
+    return pc;
+  };
+
+  // --- Outgoing Call: Create Offer ---
+  const startCall = async (user, type: 'audio' | 'video') => {
+    setCallType(type);
+    setCallStatus('ringing');
+    setCallingUser(user);
+    setCallModalOpen(true);
+    // Get local media
+    const stream = await getMedia(type);
+    localStreamRef.current = stream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+    }
+    // Create peer connection
+    const pc = createPeerConnection(user._id || user.id);
+    peerConnectionRef.current = pc;
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    // Create offer
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // Send offer
+    if (socketRef.current && currentUserId) {
+      socketRef.current.emit('call:offer', {
+        to: user._id || user.id,
+        offer,
+      });
+    }
+  };
+
+  // --- Accept Incoming Call: Create Answer ---
+  const acceptCall = async () => {
+    if (!incomingCall) return;
+    setIncomingCallModalOpen(false);
+    setCallModalOpen(true);
+    setCallType(incomingCall.type);
+    setCallStatus('in-call');
+    const user = directMessages.find(u => (u._id || u.id) === incomingCall.from);
+    setCallingUser(user || null);
+    // Get local media
+    const stream = await getMedia(incomingCall.type);
+    localStreamRef.current = stream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+    }
+    // Create peer connection
+    const pc = createPeerConnection(incomingCall.from);
+    peerConnectionRef.current = pc;
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    // Set remote offer
+    await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+    // Create answer
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    // Send answer
+    if (socketRef.current && currentUserId) {
+      socketRef.current.emit('call:answer', {
+        to: incomingCall.from,
+        answer,
+      });
+    }
+  };
+
+  // --- Cleanup on Call End ---
+  const cleanupCall = () => {
+    setCallStatus('ended');
+    setTimeout(() => setCallModalOpen(false), 2000);
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach(track => track.stop());
+      remoteStreamRef.current = null;
+    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+  };
+
+  // --- Update handlers to use new logic ---
+  const handleCancelCall = () => {
+    setCallModalOpen(false);
+    setCallStatus(null);
+    setCallType(null);
+    setCallingUser(null);
+    if (callingUser && socketRef.current && currentUserId) {
+      socketRef.current.emit('call:end', { to: callingUser._id || callingUser.id });
+    }
+    cleanupCall();
+  };
+
+  const handleRejectCall = () => {
+    setIncomingCallModalOpen(false);
+    setIncomingCall(null);
+    if (incomingCall && socketRef.current && currentUserId) {
+      socketRef.current.emit('call:reject', { to: incomingCall.from });
+    }
+    cleanupCall();
+  };
+
+  const handleAcceptCall = () => {
+    acceptCall();
+  };
+
+  // --- Update call button handlers ---
+  const onAudioCall = () => {
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (user && socketRef.current && currentUserId) {
+      socketRef.current.emit('call:initiate', {
+        to: user._id || user.id,
+        callType: 'audio',
+      });
+      startCall(user, 'audio');
+    }
+  };
+
+  const onVideoCall = () => {
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (user && socketRef.current && currentUserId) {
+      socketRef.current.emit('call:initiate', {
+        to: user._id || user.id,
+        callType: 'video',
+      });
+      startCall(user, 'video');
+    }
+  };
+
+  // --- WebRTC/Call Signaling Event Listeners ---
+  React.useEffect(() => {
+    if (!socketRef.current) return;
+
+    // Incoming call
+    const handleIncoming = (data) => {
+      setIncomingCall(data);
+      setIncomingCallModalOpen(true);
+    };
+    socketRef.current.on('call:incoming', handleIncoming);
+
+    // Offer
+    const handleOffer = async ({ from, offer }) => {
+      // Only handle if we are the callee
+      if (!peerConnectionRef.current) {
+        // Save offer in incomingCall for acceptCall
+        setIncomingCall(prev => prev ? { from, type: prev.type, roomId: prev.roomId, offer } : { from, type: 'video', roomId: '', offer });
+        setIncomingCallModalOpen(true);
+      } else {
+        // If already in call, ignore or reject
+      }
+    };
+    socketRef.current.on('call:offer', handleOffer);
+
+    // Answer
+    const handleAnswer = async ({ from, answer }) => {
+      if (peerConnectionRef.current) {
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        setCallStatus('in-call');
+      }
+    };
+    socketRef.current.on('call:answer', handleAnswer);
+
+    // ICE Candidate
+    const handleIceCandidate = async ({ from, candidate }) => {
+      if (peerConnectionRef.current && candidate) {
+        try {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error('Error adding ICE candidate', e);
+        }
+      }
+    };
+    socketRef.current.on('call:ice-candidate', handleIceCandidate);
+
+    // Call rejected
+    const handleRejected = ({ from }) => {
+      setCallStatus('ended');
+      setCallModalOpen(true);
+      cleanupCall();
+    };
+    socketRef.current.on('call:rejected', handleRejected);
+
+    // Call ended
+    const handleEnded = ({ from }) => {
+      setCallStatus('ended');
+      setCallModalOpen(true);
+      cleanupCall();
+    };
+    socketRef.current.on('call:ended', handleEnded);
+
+    return () => {
+      socketRef.current?.off('call:incoming', handleIncoming);
+      socketRef.current?.off('call:offer', handleOffer);
+      socketRef.current?.off('call:answer', handleAnswer);
+      socketRef.current?.off('call:ice-candidate', handleIceCandidate);
+      socketRef.current?.off('call:rejected', handleRejected);
+      socketRef.current?.off('call:ended', handleEnded);
+    };
+  }, [socketRef, directMessages, incomingCall]);
+
   return (
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
@@ -1103,6 +1335,15 @@ const ChatDashboard = () => {
                               <p className="text-sm text-gray-500">{user.status}</p>
                             ) : null}
                           </div>
+                          {/* Call Buttons for Direct Chat */}
+                          <div className="flex items-center ml-4 gap-2">
+                            <Button size="icon" variant="ghost" onClick={onAudioCall} title="Audio Call">
+                              <Phone className="h-5 w-5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={onVideoCall} title="Video Call">
+                              <Video className="h-5 w-5" />
+                            </Button>
+                          </div>
                         </div>
                       );
                     }
@@ -1278,6 +1519,69 @@ const ChatDashboard = () => {
         onClose={handleProfileSettingsClose}
         onProfileUpdate={handleProfileUpdate}
       />
+
+      {/* Call Modal for Outgoing/Active Call */}
+      <Dialog open={callModalOpen} onOpenChange={setCallModalOpen}>
+        <DialogContent className="max-w-xs text-center">
+          <DialogHeader>
+            <DialogTitle>
+              {callStatus === 'ringing' && (
+                <>Calling {callingUser?.displayName || callingUser?.username || callingUser?.name} ({callType})...</>
+              )}
+              {callStatus === 'in-call' && (
+                <>In {callType} call with {callingUser?.displayName || callingUser?.username || callingUser?.name}</>
+              )}
+              {callStatus === 'ended' && (
+                <>Call ended</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {/* Video Elements */}
+          {callType === 'video' && (
+            <div className="flex flex-col items-center gap-2 my-2">
+              <video ref={localVideoRef} autoPlay muted playsInline className="w-32 h-32 bg-black rounded" />
+              <video ref={remoteVideoRef} autoPlay playsInline className="w-32 h-32 bg-black rounded" />
+            </div>
+          )}
+          {callType === 'audio' && (
+            <div className="flex flex-col items-center gap-2 my-2">
+              <audio ref={localVideoRef} autoPlay muted />
+              <audio ref={remoteVideoRef} autoPlay />
+            </div>
+          )}
+          <DialogFooter>
+            {callStatus === 'ringing' && (
+              <Button variant="destructive" onClick={handleCancelCall}>Cancel</Button>
+            )}
+            {callStatus === 'in-call' && (
+              <Button variant="destructive" onClick={handleCancelCall}>End Call</Button>
+            )}
+            {callStatus === 'ended' && (
+              <DialogClose asChild>
+                <Button onClick={() => setCallModalOpen(false)}>Close</Button>
+              </DialogClose>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Incoming Call Modal */}
+      <Dialog open={incomingCallModalOpen} onOpenChange={setIncomingCallModalOpen}>
+        <DialogContent className="max-w-xs text-center">
+          <DialogHeader>
+            <DialogTitle>
+              Incoming {incomingCall?.type} call from {(() => {
+                const user = directMessages.find(u => (u._id || u.id) === incomingCall?.from);
+                return user?.displayName || user?.username || user?.name || 'Unknown';
+              })()}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center gap-4">
+            <Button variant="default" onClick={handleAcceptCall}>Accept</Button>
+            <Button variant="destructive" onClick={handleRejectCall}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

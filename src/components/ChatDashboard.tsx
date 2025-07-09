@@ -366,6 +366,44 @@ const ChatDashboard = () => {
     };
   }, []);
 
+  // Listen for messageReadUpdate events (for blue tick)
+  React.useEffect(() => {
+    if (!socketRef.current) return;
+    const handler = ({ messageId, userId }) => {
+      setMessages(prev => prev.map(msg =>
+        (msg._id || msg.id) === messageId
+          ? { ...msg, readBy: [...(msg.readBy || []), userId] }
+          : msg
+      ));
+    };
+    socketRef.current.on('messageReadUpdate', handler);
+    return () => {
+      socketRef.current?.off('messageReadUpdate', handler);
+    };
+  }, []);
+
+  // Emit messageRead for direct messages when viewing chat
+  React.useEffect(() => {
+    if (!socketRef.current || !activeChat || !currentUserId) return;
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (user) {
+      messages.forEach(msg => {
+        if (
+          msg.type === 'direct' &&
+          msg.recipient === currentUserId &&
+          !(msg.readBy && msg.readBy.includes(currentUserId))
+        ) {
+          const roomId = [currentUserId, user._id || user.id].sort().join('-');
+          socketRef.current.emit('messageRead', {
+            messageId: msg._id || msg.id,
+            userId: currentUserId,
+            roomId,
+          });
+        }
+      });
+    }
+  }, [messages, activeChat, directMessages, currentUserId]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;

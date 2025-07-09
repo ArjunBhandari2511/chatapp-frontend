@@ -57,6 +57,10 @@ interface MessageItemProps {
     fileType?: string;
     fileName?: string;
     fileSize?: number;
+    deliveredTo?: string[];
+    readBy?: string[];
+    type?: 'direct' | 'group';
+    recipient?: string;
   };
   isCurrentUser: boolean;
   onMessageEdit?: (messageId: string, newContent: string) => void;
@@ -260,6 +264,29 @@ const MessageItem: React.FC<MessageItemProps> = ({
             <span className="text-[10px] opacity-70">
               {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
+            {/* Blue tick logic for direct messages sent by current user */}
+            {isCurrentUser && message.type === 'direct' && message.recipient && (
+              <span className="ml-1 flex items-center">
+                {/* Single tick: not delivered */}
+                {!(message.deliveredTo && message.deliveredTo.includes(message.recipient)) ? (
+                  <Check className="h-3 w-3 text-white/70" />
+                ) :
+                /* Double tick: delivered but not read */
+                !(message.readBy && message.readBy.includes(message.recipient)) ? (
+                  <>
+                    <Check className="h-3 w-3 text-white/70 -mr-1" />
+                    <Check className="h-3 w-3 text-white/70" />
+                  </>
+                ) :
+                /* Double tick, green: read */
+                (
+                  <>
+                    <Check className="h-3 w-3 text-green-500 -mr-1" />
+                    <Check className="h-3 w-3 text-green-500" />
+                  </>
+                )}
+              </span>
+            )}
             {message.isEdited && (
               <span className="text-[10px] opacity-70 bg-black/10 px-1.5 py-0.5 rounded-full">edited</span>
             )}

@@ -886,11 +886,12 @@ const ChatDashboard = () => {
     // Create offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    // Send offer
+    // Send offer, include callType
     if (socketRef.current && currentUserId) {
       socketRef.current.emit('call:offer', {
         to: user._id || user.id,
         offer,
+        callType: type,
       });
       console.log('[WebRTC] Offer sent');
     }
@@ -905,7 +906,7 @@ const ChatDashboard = () => {
     setCallStatus('in-call');
     const user = directMessages.find(u => (u._id || u.id) === incomingCall.from);
     setCallingUser(user || null);
-    // Get local media
+    // Get local media with correct type
     const stream = await getMedia(incomingCall.type);
     localStreamRef.current = stream;
     if (localVideoRef.current) {
@@ -923,11 +924,12 @@ const ChatDashboard = () => {
     // Create answer
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    // Send answer
+    // Send answer, include callType
     if (socketRef.current && currentUserId) {
       socketRef.current.emit('call:answer', {
         to: incomingCall.from,
         answer,
+        callType: incomingCall.type,
       });
       console.log('[WebRTC] Answer sent');
     }
@@ -1013,11 +1015,11 @@ const ChatDashboard = () => {
     socketRef.current.on('call:incoming', handleIncoming);
 
     // Offer
-    const handleOffer = async ({ from, offer }) => {
+    const handleOffer = async ({ from, offer, callType }) => {
       // Only handle if we are the callee
       if (!peerConnectionRef.current) {
-        // Save offer in incomingCall for acceptCall
-        setIncomingCall(prev => prev ? { from, type: prev.type, roomId: prev.roomId, offer } : { from, type: 'video', roomId: '', offer });
+        // Save offer in incomingCall for acceptCall, set type from callType
+        setIncomingCall({ from, type: callType, roomId: '', offer });
         setIncomingCallModalOpen(true);
         console.log('[WebRTC] Offer received (callee)');
       } else {
@@ -1027,10 +1029,11 @@ const ChatDashboard = () => {
     socketRef.current.on('call:offer', handleOffer);
 
     // Answer
-    const handleAnswer = async ({ from, answer }) => {
+    const handleAnswer = async ({ from, answer, callType }) => {
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
         setCallStatus('in-call');
+        setCallType(callType);
         console.log('[WebRTC] Answer received and set (caller)');
       }
     };

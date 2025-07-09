@@ -404,6 +404,37 @@ const ChatDashboard = () => {
     }
   }, [messages, activeChat, directMessages, currentUserId]);
 
+  // Listen for incoming file messages
+  React.useEffect(() => {
+    if (!socketRef.current) return;
+    const handler = (msg: any) => {
+      // Debug log
+      console.log('[fileMessage event]', msg);
+      // Robust recipient/room detection
+      const recipient = msg.recipient || msg.to;
+      const channel = channelsRef.current.find(c => (c._id || c.id) === activeChatRef.current);
+      const user = directMessagesRef.current.find(u => (u._id || u.id) === activeChatRef.current);
+      let isForCurrentChat = false;
+      if (channel && msg.type === 'channel') {
+        isForCurrentChat = (msg.channel === (channel._id || channel.id) || msg.chatId === (channel._id || channel.id));
+      } else if (!channel && msg.type === 'direct') {
+        if (user && currentUserId) {
+          const roomId = [currentUserId, user._id || user.id].sort().join('-');
+          const msgRoomId = [msg.sender?._id || msg.sender?.id || msg.sender, recipient].sort().join('-');
+          isForCurrentChat = (roomId === msgRoomId);
+        }
+      }
+      // Robust file message detection
+      if (isForCurrentChat && (msg.fileUrl || msg.messageType === 'file')) {
+        setMessages(prev => [...prev, msg]);
+      }
+    };
+    socketRef.current.on('fileMessage', handler);
+    return () => {
+      socketRef.current?.off('fileMessage', handler);
+    };
+  }, []);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
@@ -781,6 +812,7 @@ const ChatDashboard = () => {
         chatId,
         timestamp: new Date().toISOString(),
         type,
+        messageType: 'file', // Ensure this is set for correct rendering
       });
       setUploadStatus('completed');
     } catch (err: any) {

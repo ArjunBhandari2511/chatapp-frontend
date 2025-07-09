@@ -172,7 +172,7 @@ const ChatDashboard = () => {
 
   // Connect to Socket.IO server on mount
   React.useEffect(() => {
-    const socket = io('ws://localhost:5000', {
+    const socket = io('wss://chatapp-backend-tp00.onrender.com', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });

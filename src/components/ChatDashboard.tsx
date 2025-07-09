@@ -844,6 +844,7 @@ const ChatDashboard = () => {
     const pc = new RTCPeerConnection({ iceServers: window.externalIceServers });
     pc.onicecandidate = (event) => {
       if (event.candidate && socketRef.current && currentUserId) {
+        console.log('[ICE] Sending candidate:', event.candidate);
         socketRef.current.emit('call:ice-candidate', {
           to: toUserId,
           candidate: event.candidate,
@@ -851,12 +852,14 @@ const ChatDashboard = () => {
       }
     };
     pc.ontrack = (event) => {
+      console.log('[WebRTC] ontrack fired:', event);
       if (remoteVideoRef.current) {
         if (!remoteStreamRef.current) {
           remoteStreamRef.current = new MediaStream();
         }
         remoteStreamRef.current.addTrack(event.track);
         remoteVideoRef.current.srcObject = remoteStreamRef.current;
+        console.log('[WebRTC] Remote stream set on video element');
       }
     };
     return pc;
@@ -873,10 +876,12 @@ const ChatDashboard = () => {
     localStreamRef.current = stream;
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
+      console.log('[WebRTC] Local stream set on local video element');
     }
-    // Create peer connection
+    // Create peer connection and set handlers BEFORE creating offer
     const pc = createPeerConnection(user._id || user.id);
     peerConnectionRef.current = pc;
+    // Add tracks BEFORE creating offer
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     // Create offer
     const offer = await pc.createOffer();
@@ -887,6 +892,7 @@ const ChatDashboard = () => {
         to: user._id || user.id,
         offer,
       });
+      console.log('[WebRTC] Offer sent');
     }
   };
 
@@ -904,13 +910,16 @@ const ChatDashboard = () => {
     localStreamRef.current = stream;
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
+      console.log('[WebRTC] Local stream set on local video element (callee)');
     }
-    // Create peer connection
+    // Create peer connection and set handlers BEFORE setting remote offer
     const pc = createPeerConnection(incomingCall.from);
     peerConnectionRef.current = pc;
+    // Add tracks BEFORE setting remote offer
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     // Set remote offer
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+    console.log('[WebRTC] Remote offer set (callee)');
     // Create answer
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -920,6 +929,7 @@ const ChatDashboard = () => {
         to: incomingCall.from,
         answer,
       });
+      console.log('[WebRTC] Answer sent');
     }
   };
 
@@ -1009,6 +1019,7 @@ const ChatDashboard = () => {
         // Save offer in incomingCall for acceptCall
         setIncomingCall(prev => prev ? { from, type: prev.type, roomId: prev.roomId, offer } : { from, type: 'video', roomId: '', offer });
         setIncomingCallModalOpen(true);
+        console.log('[WebRTC] Offer received (callee)');
       } else {
         // If already in call, ignore or reject
       }
@@ -1020,15 +1031,18 @@ const ChatDashboard = () => {
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
         setCallStatus('in-call');
+        console.log('[WebRTC] Answer received and set (caller)');
       }
     };
     socketRef.current.on('call:answer', handleAnswer);
 
     // ICE Candidate
     const handleIceCandidate = async ({ from, candidate }) => {
+      console.log('[ICE] Candidate received:', candidate);
       if (peerConnectionRef.current && candidate) {
         try {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log('[ICE] Candidate added');
         } catch (e) {
           console.error('Error adding ICE candidate', e);
         }
@@ -1041,6 +1055,7 @@ const ChatDashboard = () => {
       setCallStatus('ended');
       setCallModalOpen(true);
       cleanupCall();
+      console.log('[WebRTC] Call rejected');
     };
     socketRef.current.on('call:rejected', handleRejected);
 
@@ -1049,6 +1064,7 @@ const ChatDashboard = () => {
       setCallStatus('ended');
       setCallModalOpen(true);
       cleanupCall();
+      console.log('[WebRTC] Call ended');
     };
     socketRef.current.on('call:ended', handleEnded);
 
@@ -1541,12 +1557,18 @@ const ChatDashboard = () => {
             <div className="flex flex-col items-center gap-2 my-2">
               <video ref={localVideoRef} autoPlay muted playsInline className="w-32 h-32 bg-black rounded" />
               <video ref={remoteVideoRef} autoPlay playsInline className="w-32 h-32 bg-black rounded" />
+              {(!localStreamRef.current || !remoteStreamRef.current) && (
+                <div className="text-xs text-gray-400 mt-2">Waiting for video streams...</div>
+              )}
             </div>
           )}
           {callType === 'audio' && (
             <div className="flex flex-col items-center gap-2 my-2">
               <audio ref={localVideoRef} autoPlay muted />
               <audio ref={remoteVideoRef} autoPlay />
+              {(!localStreamRef.current || !remoteStreamRef.current) && (
+                <div className="text-xs text-gray-400 mt-2">Waiting for audio streams...</div>
+              )}
             </div>
           )}
           <DialogFooter>

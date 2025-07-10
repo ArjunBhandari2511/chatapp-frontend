@@ -288,7 +288,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
         <div
           className={`max-w-xs sm:max-w-md md:max-w-lg px-4 py-2 rounded-2xl shadow-sm text-sm break-words relative
             ${isCurrentUser
-              ? 'bg-blue-600 text-white rounded-br-md ml-8 hover:bg-blue-700 transition-colors duration-200'
+              ? 'bg-[#c4ffc5] text-gray-900 rounded-br-md ml-8 hover:bg-[#b0eeb1] transition-colors duration-200'
               : 'bg-gray-200 text-gray-900 rounded-bl-md mr-8 hover:bg-gray-300 transition-colors duration-200'}
           `}
         >
@@ -360,11 +360,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     <Check className="h-3 w-3 text-white/70" />
                   </>
                 ) :
-                /* Double tick, green: read */
+                /* Double tick, dark blue: read */
                 (
                   <>
-                    <Check className="h-3 w-3 text-green-500 -mr-1" />
-                    <Check className="h-3 w-3 text-green-500" />
+                    <Check className="h-3 w-3 text-[#1e3a8a] -mr-1" />
+                    <Check className="h-3 w-3 text-[#1e3a8a]" />
                   </>
                 )}
               </span>

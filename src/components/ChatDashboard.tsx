@@ -32,35 +32,6 @@ import UploadProgress from './UploadProgress';
 import ImagePreview from './ImagePreview';
 import ProfileSettings from './ProfileSettings';
 
-// Add TypeScript global declaration for window.externalIceServers
-declare global {
-  interface Window {
-    externalIceServers?: RTCIceServer[];
-  }
-}
-
-// Set Twilio ICE servers globally for WebRTC
-window.externalIceServers = [
-  {
-    urls: 'stun:global.stun.twilio.com:3478'
-  },
-  {
-    urls: 'turn:global.turn.twilio.com:3478?transport=udp',
-    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
-    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
-  },
-  {
-    urls: 'turn:global.turn.twilio.com:3478?transport=tcp',
-    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
-    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
-  },
-  {
-    urls: 'turn:global.turn.twilio.com:443?transport=tcp',
-    username: '660691904466ba7201d426f7223a1298b078c5d2591124a677b6f8f24bb12b60',
-    credential: '6nJUM2n/TpBLEL+ehFX91X97AJM8KjxGjIv90mi75jc='
-  }
-];
-
 const ChatDashboard = () => {
   const [message, setMessage] = useState('');
   const [activeChat, setActiveChat] = useState<string | null>(null);
@@ -100,21 +71,6 @@ const ChatDashboard = () => {
   const activeChatRef = useRef(activeChat);
   const channelsRef = useRef(channels);
   const directMessagesRef = useRef(directMessages);
-  const [callModalOpen, setCallModalOpen] = React.useState(false);
-  const [callType, setCallType] = React.useState<'audio' | 'video' | null>(null);
-  const [callStatus, setCallStatus] = React.useState<'ringing' | 'in-call' | 'ended' | null>(null);
-  const [callingUser, setCallingUser] = React.useState<any>(null);
-  const [incomingCall, setIncomingCall] = React.useState<null | {
-    from: any;
-    type: 'audio' | 'video';
-    roomId: string;
-  }>(null);
-  const [incomingCallModalOpen, setIncomingCallModalOpen] = React.useState(false);
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -348,21 +304,6 @@ const ChatDashboard = () => {
     return () => {
       socketRef.current?.off('messageEdited', handleMessageEdited);
       socketRef.current?.off('messageDeleted', handleMessageDeleted);
-    };
-  }, []);
-
-  // Listen for incoming callUser event
-  React.useEffect(() => {
-    if (!socketRef.current) return;
-    const handleIncomingCall = (data) => {
-      // Log the data to see what you get
-      console.log('Received callUser event:', data);
-      setIncomingCall(data);
-      setIncomingCallModalOpen(true);
-    };
-    socketRef.current.on('callUser', handleIncomingCall);
-    return () => {
-      socketRef.current?.off('callUser', handleIncomingCall);
     };
   }, []);
 

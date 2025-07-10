@@ -771,6 +771,22 @@ const ChatDashboard = () => {
     }
   };
 
+  // Add a useEffect to listen for 'messageReaction' events
+  React.useEffect(() => {
+    if (!socketRef.current) return;
+    const handler = (updatedMessage: any) => {
+      setMessages(prev => prev.map(msg =>
+        (msg._id || msg.id) === (updatedMessage._id || updatedMessage.id)
+          ? updatedMessage
+          : msg
+      ));
+    };
+    socketRef.current.on('messageReaction', handler);
+    return () => {
+      socketRef.current?.off('messageReaction', handler);
+    };
+  }, []);
+
   return (
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
@@ -1081,6 +1097,7 @@ const ChatDashboard = () => {
                         onMessageDelete={handleMessageDelete}
                         roomId={roomId}
                         socket={socketRef.current}
+                        currentUserId={currentUserId || ''}
                       />
                     );
                   })

@@ -13,7 +13,8 @@ import {
   FileText,
   FileArchive,
   FileSpreadsheet,
-  File
+  File,
+  Smile
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -32,7 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import ImageLightbox from './ImageLightbox';
-import { editMessage, deleteMessage } from '@/services/api';
+import { editMessage, deleteMessage, reactToMessage } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 interface MessageItemProps {
@@ -61,12 +62,14 @@ interface MessageItemProps {
     readBy?: string[];
     type?: 'direct' | 'group';
     recipient?: string;
+    reactions?: Array<{ emoji: string; user: { _id: string; username?: string; displayName?: string; profilePicture?: string } }>;
   };
   isCurrentUser: boolean;
   onMessageEdit?: (messageId: string, newContent: string) => void;
   onMessageDelete?: (messageId: string) => void;
   roomId?: string;
   socket?: any;
+  currentUserId: string;
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({ 
@@ -75,7 +78,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onMessageEdit, 
   onMessageDelete,
   roomId,
-  socket
+  socket,
+  currentUserId
 }) => {
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -83,7 +87,38 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showEmojiBar, setShowEmojiBar] = useState(false);
+  const [reactionPopover, setReactionPopover] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Group reactions by emoji
+  const groupedReactions = React.useMemo(() => {
+    const map: Record<string, { emoji: string; users: any[] }> = {};
+    (message.reactions || []).forEach(r => {
+      if (!map[r.emoji]) map[r.emoji] = { emoji: r.emoji, users: [] };
+      map[r.emoji].users.push(r.user);
+    });
+    return Object.values(map);
+  }, [message.reactions]);
+
+  // Handle reaction click (socket preferred, fallback to REST)
+  const handleReaction = async (messageId: string, emoji: string) => {
+    setShowEmojiBar(false);
+    // Optimistic update: handled by parent via socket event, but fallback for REST
+    if (socket && roomId) {
+      socket.emit('reactToMessage', { messageId, emoji, roomId });
+    } else {
+      try {
+        await reactToMessage(messageId, emoji);
+        // No local update here; parent should update message list
+      } catch (err: any) {
+        toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      }
+    }
+  };
+
+  // List of emojis for reactions
+  const emojiList = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
   const handleImageClick = () => {
     if (message.messageType === 'image' && message.imageUrl) {
@@ -257,6 +292,53 @@ const MessageItem: React.FC<MessageItemProps> = ({
               : 'bg-gray-200 text-gray-900 rounded-bl-md mr-8 hover:bg-gray-300 transition-colors duration-200'}
           `}
         >
+          {/* Emoji Bar (floating, only if showEmojiBar) */}
+          {showEmojiBar && (
+            <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-white border border-gray-200 rounded-full shadow-lg px-3 py-1 animate-fade-in">
+              {emojiList.map((emoji) => (
+                <button
+                  key={emoji}
+                  className="text-xl hover:scale-125 transition-transform duration-100 focus:outline-none"
+                  onClick={() => handleReaction(message._id || message.id || '', emoji)}
+                  tabIndex={0}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Reactions display */}
+          {groupedReactions.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-1">
+              {groupedReactions.map(gr => (
+                <div
+                  key={gr.emoji}
+                  className={`relative flex items-center px-2 py-0.5 rounded-full text-xs font-medium border cursor-pointer select-none transition-all
+                    ${gr.users.some(u => u?._id === currentUserId) ? 'bg-yellow-100 border-yellow-400 text-yellow-700' : 'bg-gray-100 border-gray-300 text-gray-700'}`}
+                  onClick={() => handleReaction(message._id || message.id || '', gr.emoji)}
+                  onMouseEnter={() => setReactionPopover(gr.emoji)}
+                  onMouseLeave={() => setReactionPopover(null)}
+                >
+                  <span className="mr-1">{gr.emoji}</span>
+                  <span>{gr.users.length}</span>
+                  {/* Popover for user list */}
+                  {reactionPopover === gr.emoji && gr.users.length > 0 && (
+                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full z-30 bg-white border border-gray-300 rounded shadow-lg px-3 py-2 text-xs whitespace-nowrap min-w-[100px]">
+                      <div className="font-semibold mb-1 text-gray-700">Reacted by:</div>
+                      {gr.users.map((u, idx) => (
+                        <div key={u?._id || idx} className="flex items-center gap-2 py-0.5">
+                          {u?.profilePicture && (
+                            <img src={u.profilePicture} alt={u.displayName || u.username || 'User'} className="w-4 h-4 rounded-full" />
+                          )}
+                          <span>{u?.displayName || u?.username || 'User'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2 mb-1 relative">
             <span className="font-semibold text-xs">
               {isCurrentUser ? 'You' : message.sender?.displayName || message.sender?.username || 'Unknown'}
@@ -324,6 +406,18 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            {/* React Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="ml-1 p-0 h-5 w-5 min-w-0 min-h-0 flex items-center justify-center rounded-full shadow-none bg-transparent hover:bg-yellow-100 focus:bg-yellow-100"
+              tabIndex={0}
+              aria-label="React to message"
+              onClick={() => setShowEmojiBar((prev) => !prev)}
+            >
+              <Smile className="h-4 w-4 text-yellow-500" />
+            </Button>
           </div>
           
           {/* Message Content */}

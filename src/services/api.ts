@@ -232,6 +232,22 @@ export const deleteMessage = async (messageId: string): Promise<any> => {
   return resData.message;
 };
 
+export const reactToMessage = async (messageId: string, emoji: string): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/messages/${messageId}/reactions`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emoji }),
+  });
+  const resData = await response.json();
+  if (!response.ok) {
+    throw new Error(resData.message || 'Failed to react to message');
+  }
+  return resData.message;
+};
+
 export const uploadImage = async (
   file: File,
   onProgress?: (progress: number) => void

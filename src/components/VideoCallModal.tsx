@@ -6,26 +6,26 @@ interface VideoCallModalProps {
   onClose: () => void;
   roomId?: string;
   socket: Socket;
+  isCaller: boolean;
 }
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' }
 ];
 
-const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId, socket }) => {
+const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId, socket, isCaller }) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [callActive, setCallActive] = useState(false);
+  const offerCreatedRef = useRef(false);
 
-  // Setup and cleanup WebRTC and signaling on open/close
   useEffect(() => {
     if (!isOpen || !roomId || !socket) return;
     let peerConnection: RTCPeerConnection;
     let localStream: MediaStream;
     let joined = false;
-    let remoteHungUp = false;
 
     async function start() {
       try {
@@ -58,6 +58,18 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
         socket.emit('join-call-room', { roomId });
         joined = true;
         setCallActive(true);
+        // 7. If caller, create offer after joining
+        if (isCaller && !offerCreatedRef.current) {
+          // Wait a tick to ensure both peers are in the room
+          setTimeout(async () => {
+            if (peerConnectionRef.current && !offerCreatedRef.current) {
+              const offer = await peerConnectionRef.current.createOffer();
+              await peerConnectionRef.current.setLocalDescription(offer);
+              socket.emit('video-signal', { roomId, signal: { sdp: peerConnectionRef.current.localDescription } });
+              offerCreatedRef.current = true;
+            }
+          }, 300);
+        }
       } catch (err) {
         alert('Could not start video call: ' + (err as any).message);
         onClose();
@@ -69,18 +81,15 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
     const handleSignal = async (signal: any) => {
       if (!peerConnectionRef.current) return;
       const pc = peerConnectionRef.current;
-      if (signal.ready && pc.signalingState === 'stable') {
-        // Create offer
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('video-signal', { roomId, signal: { sdp: pc.localDescription } });
-      }
       if (signal.sdp) {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         if (signal.sdp.type === 'offer') {
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('video-signal', { roomId, signal: { sdp: pc.localDescription } });
+          // Only callee creates answer
+          if (!isCaller) {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('video-signal', { roomId, signal: { sdp: pc.localDescription } });
+          }
         }
       }
       if (signal.candidate) {
@@ -96,18 +105,12 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
       handleSignal(data.signal);
     };
     const handlePeerLeft = () => {
-      remoteHungUp = true;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setCallActive(false);
       alert('The other user has left the call.');
-      // Optionally, auto-close modal
-      // onClose();
     };
     socket.on('video-signal', handleVideoSignal);
     socket.on('peer-left', handlePeerLeft);
-
-    // Initiate ready signal after joining
-    socket.emit('video-signal', { roomId, signal: { ready: true } });
 
     // Cleanup on close
     return () => {
@@ -127,9 +130,10 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
       socket.off('video-signal', handleVideoSignal);
       socket.off('peer-left', handlePeerLeft);
       setCallActive(false);
+      offerCreatedRef.current = false;
     };
     // eslint-disable-next-line
-  }, [isOpen, roomId, socket]);
+  }, [isOpen, roomId, socket, isCaller]);
 
   if (!isOpen) return null;
 

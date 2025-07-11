@@ -1358,6 +1358,7 @@ const ChatDashboard = () => {
         onClose={() => setVideoCallOpen(false)}
         roomId={videoCallRoomId || undefined}
         socket={socketRef.current}
+        isCaller={callModal?.type === 'calling'}
       />
 
       {/* Call Modals */}

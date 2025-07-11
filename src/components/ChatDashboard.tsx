@@ -31,6 +31,7 @@ import MessageItem from './MessageItem';
 import UploadProgress from './UploadProgress';
 import ImagePreview from './ImagePreview';
 import ProfileSettings from './ProfileSettings';
+import { io as socketio } from 'socket.io-client';
 
 const ChatDashboard = () => {
   const [message, setMessage] = useState('');
@@ -71,6 +72,16 @@ const ChatDashboard = () => {
   const activeChatRef = useRef(activeChat);
   const channelsRef = useRef(channels);
   const directMessagesRef = useRef(directMessages);
+  const [callModal, setCallModal] = useState({ open: false, from: null, callType: null, roomId: null });
+  const [busyMessage, setBusyMessage] = useState('');
+  const signalingSocketRef = useRef(null);
+  const [inCall, setInCall] = useState(false);
+  const [callRoomId, setCallRoomId] = useState(null);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const [isCaller, setIsCaller] = useState(false);
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -128,7 +139,7 @@ const ChatDashboard = () => {
 
   // Connect to Socket.IO server on mount
   React.useEffect(() => {
-    const socket = io('ws://localhost:5000', {
+    const socket = io('wss://chatapp-backend-tp00.onrender.com', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });
@@ -787,6 +798,151 @@ const ChatDashboard = () => {
     };
   }, []);
 
+  // Connect to main backend for signaling (Socket.IO)
+  useEffect(() => {
+    signalingSocketRef.current = socketio('ws://localhost:5000', {
+      auth: { token: localStorage.getItem('token') },
+      transports: ['websocket'],
+    });
+    signalingSocketRef.current.on('connect', () => {
+      // No need for manual register, userId is in JWT
+    });
+    signalingSocketRef.current.on('call:incoming', (data) => {
+      setCallModal({ open: true, from: data.from, callType: data.callType, roomId: data.roomId });
+    });
+    signalingSocketRef.current.on('call:accepted', (data) => {
+      setInCall(true);
+      setCallRoomId(data.roomId); // <-- Added to trigger getUserMedia
+      setCallModal({ open: false, from: null, callType: null, roomId: null });
+      // TODO: Open video call UI/modal here
+    });
+    signalingSocketRef.current.on('call:rejected', (data) => {
+      setBusyMessage('User is Busy!');
+      setTimeout(() => setBusyMessage(''), 3000);
+    });
+    signalingSocketRef.current.on('signal', (data) => {
+      handleSignal(data.signal);
+    });
+    signalingSocketRef.current.on('peer-left', () => {
+      cleanupCall();
+    });
+    return () => { signalingSocketRef.current && signalingSocketRef.current.disconnect(); };
+  }, [currentUserId]);
+
+  // Call button click handler
+  const handleCallRequest = (callType) => {
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (!user || !currentUserId) return;
+    const roomId = [currentUserId, user._id || user.id].sort().join('-');
+    setIsCaller(true);
+    signalingSocketRef.current.emit('call:request', {
+      roomId,
+      from: currentUserId,
+      to: user._id || user.id,
+      callType
+    });
+  };
+
+  // Accept/Reject handlers
+  const handleAcceptCall = () => {
+    if (!callModal.roomId || !currentUserId || !callModal.from) return;
+    setIsCaller(false);
+    signalingSocketRef.current.emit('call:accept', {
+      roomId: callModal.roomId,
+      from: currentUserId,
+      to: callModal.from
+    });
+    setInCall(true);
+    setCallRoomId(callModal.roomId); // <-- Added to trigger getUserMedia
+    setCallModal({ open: false, from: null, callType: null, roomId: null });
+  };
+  const handleRejectCall = () => {
+    if (!callModal.roomId || !currentUserId || !callModal.from) return;
+    signalingSocketRef.current.emit('call:reject', {
+      roomId: callModal.roomId,
+      from: currentUserId,
+      to: callModal.from
+    });
+    setCallModal({ open: false, from: null, callType: null, roomId: null });
+  };
+
+  // WebRTC signaling
+  function handleSignal(signal) {
+    if (!peerConnectionRef.current) return;
+    const peerConnection = peerConnectionRef.current;
+    if (signal.sdp) {
+      peerConnection.setRemoteDescription(new window.RTCSessionDescription(signal.sdp)).then(() => {
+        if (signal.sdp.type === 'offer') {
+          peerConnection.createAnswer().then(answer => {
+            peerConnection.setLocalDescription(answer);
+            signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: answer } });
+          });
+        }
+      });
+    }
+    if (signal.candidate) {
+      peerConnection.addIceCandidate(new window.RTCIceCandidate(signal.candidate)).catch(() => {});
+    }
+  }
+
+  function cleanupCall() {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    setInCall(false);
+    setCallRoomId(null);
+  }
+
+  useEffect(() => {
+    if (!inCall || !callRoomId) return;
+    let peerConnection;
+    let localStream;
+    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    async function startCall() {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStreamRef.current = localStream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+      peerConnection = new window.RTCPeerConnection(config);
+      peerConnectionRef.current = peerConnection;
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { candidate: event.candidate } });
+        }
+      };
+      peerConnection.ontrack = (event) => {
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+      };
+      // If this user initiated the call, create offer
+      if (isCaller) {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: peerConnection.localDescription } });
+      }
+    }
+    startCall();
+    return () => {
+      cleanupCall();
+    };
+  }, [inCall, callRoomId, isCaller]);
+
+  // When call is accepted, set callRoomId
+  useEffect(() => {
+    if (inCall && callModal.roomId) setCallRoomId(callModal.roomId);
+  }, [inCall, callModal.roomId]);
+
+  // When call is accepted (from signaling), set callRoomId
+  useEffect(() => {
+    if (inCall && !callRoomId && callModal.roomId) setCallRoomId(callModal.roomId);
+  }, [inCall, callRoomId, callModal.roomId]);
+
   return (
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
@@ -1066,6 +1222,18 @@ const ChatDashboard = () => {
                     return null;
                   })()}
                 </div>
+                {(() => {
+                  const user = directMessages.find(u => (u._id || u.id) === activeChat);
+                  if (user) {
+                    return (
+                      <>
+                        <Button variant="ghost" size="icon" onClick={() => handleCallRequest('audio')}><Phone className="h-5 w-5" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleCallRequest('video')}><Video className="h-5 w-5" /></Button>
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
 
@@ -1236,6 +1404,36 @@ const ChatDashboard = () => {
         onClose={handleProfileSettingsClose}
         onProfileUpdate={handleProfileUpdate}
       />
+
+      {/* Add modal for incoming call */}
+      {callModal.open && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
+          <div className="bg-white p-6 rounded shadow-lg flex flex-col items-center">
+            <div className="mb-4 font-semibold">Incoming {callModal.callType} call</div>
+            <div className="mb-4">From: {callModal.from}</div>
+            <div className="flex gap-4">
+              <Button onClick={handleAcceptCall} className="bg-green-500 hover:bg-green-600 text-white">Accept</Button>
+              <Button onClick={handleRejectCall} className="bg-red-500 hover:bg-red-600 text-white">Reject</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Show busy message */}
+      {busyMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-50">{busyMessage}</div>
+      )}
+      {inCall && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
+          <div className="bg-white p-4 rounded shadow-lg flex flex-col items-center">
+            <div className="mb-2 font-semibold">Video Call</div>
+            <div className="flex gap-4 mb-4">
+              <video ref={localVideoRef} autoPlay muted playsInline className="w-48 h-36 bg-black rounded" />
+              <video ref={remoteVideoRef} autoPlay playsInline className="w-48 h-36 bg-black rounded" />
+            </div>
+            <Button onClick={() => { if (peerConnectionRef.current) peerConnectionRef.current.close(); setInCall(false); setCallRoomId(null); }} className="bg-red-500 hover:bg-red-600 text-white">Hang Up</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

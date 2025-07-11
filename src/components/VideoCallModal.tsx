@@ -44,6 +44,7 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
         });
         // 4. Handle remote stream
         peerConnection.ontrack = (event) => {
+          console.log('Received remote track:', event.streams[0]);
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = event.streams[0];
           }
@@ -51,6 +52,7 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
         // 5. Handle ICE candidates
         peerConnection.onicecandidate = (event) => {
           if (event.candidate) {
+            console.log('Sending ICE candidate:', event.candidate);
             socket.emit('video-signal', { roomId, signal: { candidate: event.candidate } });
           }
         };
@@ -63,8 +65,10 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
           // Wait a tick to ensure both peers are in the room
           setTimeout(async () => {
             if (peerConnectionRef.current && !offerCreatedRef.current) {
+              console.log('Caller creating offer...');
               const offer = await peerConnectionRef.current.createOffer();
               await peerConnectionRef.current.setLocalDescription(offer);
+              console.log('Caller set local description (offer):', offer);
               socket.emit('video-signal', { roomId, signal: { sdp: peerConnectionRef.current.localDescription } });
               offerCreatedRef.current = true;
             }
@@ -82,21 +86,27 @@ const VideoCallModal: React.FC<VideoCallModalProps> = ({ isOpen, onClose, roomId
       if (!peerConnectionRef.current) return;
       const pc = peerConnectionRef.current;
       if (signal.sdp) {
+        console.log('Received SDP:', signal.sdp.type, signal.sdp);
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        console.log('Set remote description:', signal.sdp.type);
         if (signal.sdp.type === 'offer') {
           // Only callee creates answer
           if (!isCaller) {
+            console.log('Callee creating answer...');
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            console.log('Callee set local description (answer):', answer);
             socket.emit('video-signal', { roomId, signal: { sdp: pc.localDescription } });
           }
         }
       }
       if (signal.candidate) {
+        console.log('Received ICE candidate:', signal.candidate);
         try {
           await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          console.log('Added ICE candidate');
         } catch (e) {
-          // Ignore duplicate candidates
+          console.error('Error adding ICE candidate:', e);
         }
       }
     };

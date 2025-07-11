@@ -82,6 +82,8 @@ const ChatDashboard = () => {
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const [isCaller, setIsCaller] = useState(false);
+  // Buffer for ICE candidates received before remote description is set
+  const iceCandidateBuffer = useRef([]);
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -868,20 +870,39 @@ const ChatDashboard = () => {
 
   // WebRTC signaling
   function handleSignal(signal) {
+    console.log('[WebRTC] Received signal:', signal);
     if (!peerConnectionRef.current) return;
     const peerConnection = peerConnectionRef.current;
     if (signal.sdp) {
       peerConnection.setRemoteDescription(new window.RTCSessionDescription(signal.sdp)).then(() => {
+        console.log('[WebRTC] Remote description set:', signal.sdp.type);
+        // Flush buffered ICE candidates
+        iceCandidateBuffer.current.forEach(candidate => {
+          peerConnection.addIceCandidate(candidate).then(() => {
+            console.log('[WebRTC] Flushed buffered ICE candidate:', candidate);
+          }).catch(e => console.error('[WebRTC] Error adding buffered ICE candidate:', e));
+        });
+        iceCandidateBuffer.current = [];
         if (signal.sdp.type === 'offer') {
           peerConnection.createAnswer().then(answer => {
             peerConnection.setLocalDescription(answer);
-            signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: answer } });
+            const to = getOtherUserId();
+            console.log('[WebRTC] Sending answer SDP to', to);
+            signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: answer }, to });
           });
         }
       });
     }
     if (signal.candidate) {
-      peerConnection.addIceCandidate(new window.RTCIceCandidate(signal.candidate)).catch(() => {});
+      if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+        peerConnection.addIceCandidate(new window.RTCIceCandidate(signal.candidate)).then(() => {
+          console.log('[WebRTC] ICE candidate added:', signal.candidate);
+        }).catch(e => console.error('[WebRTC] Error adding ICE candidate:', e));
+      } else {
+        // Buffer ICE candidates until remote description is set
+        iceCandidateBuffer.current.push(new window.RTCIceCandidate(signal.candidate));
+        console.log('[WebRTC] ICE candidate buffered:', signal.candidate);
+      }
     }
   }
 
@@ -908,28 +929,59 @@ const ChatDashboard = () => {
     async function startCall() {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = localStream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStream;
+        console.log('[WebRTC] Local stream attached');
+      }
       peerConnection = new window.RTCPeerConnection(config);
       peerConnectionRef.current = peerConnection;
-      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+      console.log('[WebRTC] PeerConnection created');
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+        console.log('[WebRTC] Track added:', track.kind);
+      });
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { candidate: event.candidate } });
+          const to = getOtherUserId();
+          console.log('[WebRTC] Sending ICE candidate:', event.candidate, 'to', to);
+          signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { candidate: event.candidate }, to });
         }
       };
       peerConnection.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+          console.log('[WebRTC] Remote stream attached:', event.streams[0]);
+        }
+        console.log('[WebRTC] ontrack event:', event.streams);
+      };
+      peerConnection.onconnectionstatechange = () => {
+        console.log('[WebRTC] Connection state:', peerConnection.connectionState);
       };
       // If this user initiated the call, create offer
       if (isCaller) {
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: peerConnection.localDescription } });
+        const to = getOtherUserId();
+        console.log('[WebRTC] Sending offer SDP to', to);
+        signalingSocketRef.current.emit('signal', { room: callRoomId, signal: { sdp: peerConnection.localDescription }, to });
       }
     }
     startCall();
     return () => {
-      cleanupCall();
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+        console.log('[WebRTC] PeerConnection closed');
+      }
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+        console.log('[WebRTC] Local stream stopped');
+      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = null;
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      setInCall(false);
+      setCallRoomId(null);
     };
   }, [inCall, callRoomId, isCaller]);
 
@@ -942,6 +994,15 @@ const ChatDashboard = () => {
   useEffect(() => {
     if (inCall && !callRoomId && callModal.roomId) setCallRoomId(callModal.roomId);
   }, [inCall, callRoomId, callModal.roomId]);
+
+  // Helper to get the other user's userId in a DM
+  const getOtherUserId = () => {
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (user && currentUserId) {
+      return user._id || user.id;
+    }
+    return null;
+  };
 
   return (
     <div className="h-screen flex bg-gray-50">

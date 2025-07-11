@@ -31,7 +31,6 @@ import MessageItem from './MessageItem';
 import UploadProgress from './UploadProgress';
 import ImagePreview from './ImagePreview';
 import ProfileSettings from './ProfileSettings';
-import VideoCallModal from './VideoCallModal';
 
 const ChatDashboard = () => {
   const [message, setMessage] = useState('');
@@ -72,15 +71,6 @@ const ChatDashboard = () => {
   const activeChatRef = useRef(activeChat);
   const channelsRef = useRef(channels);
   const directMessagesRef = useRef(directMessages);
-  const [videoCallOpen, setVideoCallOpen] = React.useState(false);
-  const [videoCallRoomId, setVideoCallRoomId] = React.useState<string | null>(null);
-  const [callModal, setCallModal] = React.useState<null | {
-    type: 'calling' | 'incoming';
-    roomId: string;
-    peerUser: any;
-    callType: 'video' | 'audio';
-    callerInfo?: any;
-  }>(null);
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -138,7 +128,7 @@ const ChatDashboard = () => {
 
   // Connect to Socket.IO server on mount
   React.useEffect(() => {
-    const socket = io('wss://chatapp-backend-tp00.onrender.com', {
+    const socket = io('ws://localhost:5000', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });
@@ -797,87 +787,6 @@ const ChatDashboard = () => {
     };
   }, []);
 
-  // Call invitation logic
-  const handleStartCall = (callType: 'video' | 'audio') => {
-    // Only for DMs (not channels)
-    const user = directMessages.find(u => (u._id || u.id) === activeChat);
-    if (!user || !currentUserId) return;
-    const roomId = [currentUserId, user._id || user.id].sort().join('-');
-    // Send call invitation
-    socketRef.current?.emit('call-user', {
-      toUserId: user._id || user.id,
-      roomId,
-      callType,
-      callerInfo: {
-        _id: currentUserId,
-        username: currentUser?.username,
-        displayName: currentUserProfile?.displayName || currentUserProfile?.username || currentUser?.username,
-        profilePicture: currentUserProfile?.profilePicture,
-      },
-    });
-    setCallModal({
-      type: 'calling',
-      roomId,
-      peerUser: user,
-      callType,
-      callerInfo: currentUserProfile,
-    });
-  };
-
-  // Listen for incoming call events
-  React.useEffect(() => {
-    if (!socketRef.current) return;
-    const handleIncomingCall = (data: any) => {
-      // Only show if not already in a call
-      if (videoCallOpen) return;
-      const peerUser = directMessages.find(u => (u._id || u.id) === data.fromUserId);
-      setCallModal({
-        type: 'incoming',
-        roomId: data.roomId,
-        peerUser,
-        callType: data.callType || 'video',
-        callerInfo: data.callerInfo,
-      });
-    };
-    const handleCallAccepted = (data: any) => {
-      setCallModal(null);
-      setVideoCallRoomId(data.roomId);
-      setVideoCallOpen(true);
-    };
-    const handleCallRejected = (data: any) => {
-      setCallModal(null);
-      alert('Call was rejected or cancelled.');
-    };
-    socketRef.current.on('incoming-call', handleIncomingCall);
-    socketRef.current.on('call-accepted', handleCallAccepted);
-    socketRef.current.on('call-rejected', handleCallRejected);
-    return () => {
-      socketRef.current?.off('incoming-call', handleIncomingCall);
-      socketRef.current?.off('call-accepted', handleCallAccepted);
-      socketRef.current?.off('call-rejected', handleCallRejected);
-    };
-  }, [directMessages, videoCallOpen]);
-
-  // Accept/Reject handlers
-  const handleAcceptCall = () => {
-    if (!callModal || !currentUserId) return;
-    socketRef.current?.emit('call-accepted', {
-      toUserId: callModal.callerInfo?._id || callModal.peerUser?._id || callModal.peerUser?.id,
-      roomId: callModal.roomId,
-    });
-    setCallModal(null);
-    setVideoCallRoomId(callModal.roomId);
-    setVideoCallOpen(true);
-  };
-  const handleRejectCall = () => {
-    if (!callModal || !currentUserId) return;
-    socketRef.current?.emit('call-rejected', {
-      toUserId: callModal.callerInfo?._id || callModal.peerUser?._id || callModal.peerUser?.id,
-      roomId: callModal.roomId,
-    });
-    setCallModal(null);
-  };
-
   return (
     <div className="h-screen flex bg-gray-50">
       {/* Sidebar */}
@@ -1157,30 +1066,6 @@ const ChatDashboard = () => {
                     return null;
                   })()}
                 </div>
-                {/* Video/Audio Call Buttons */}
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    // Only show for DMs
-                    const user = directMessages.find(u => (u._id || u.id) === activeChat);
-                    if (!user) return null;
-                    return <>
-                      <button
-                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                        title="Start Video Call"
-                        onClick={() => handleStartCall('video')}
-                      >
-                        <Video className="h-5 w-5 text-blue-700" />
-                      </button>
-                      <button
-                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                        title="Start Audio Call"
-                        onClick={() => handleStartCall('audio')}
-                      >
-                        <Phone className="h-5 w-5 text-green-600" />
-                      </button>
-                    </>;
-                  })()}
-                </div>
               </div>
             </div>
 
@@ -1351,48 +1236,6 @@ const ChatDashboard = () => {
         onClose={handleProfileSettingsClose}
         onProfileUpdate={handleProfileUpdate}
       />
-
-      {/* Video Call Modal */}
-      <VideoCallModal
-        isOpen={videoCallOpen}
-        onClose={() => setVideoCallOpen(false)}
-        roomId={videoCallRoomId || undefined}
-        socket={socketRef.current}
-        isCaller={callModal?.type === 'calling'}
-      />
-
-      {/* Call Modals */}
-      {callModal && callModal.type === 'calling' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-white rounded-lg shadow-lg p-6 flex flex-col items-center">
-            <h2 className="text-lg font-semibold mb-2">Calling {callModal.peerUser?.displayName || callModal.peerUser?.username || 'User'}...</h2>
-            <div className="flex gap-2 mt-4">
-              <button
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                onClick={handleRejectCall}
-              >Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {callModal && callModal.type === 'incoming' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-white rounded-lg shadow-lg p-6 flex flex-col items-center">
-            <h2 className="text-lg font-semibold mb-2">Incoming {callModal.callType === 'audio' ? 'Audio' : 'Video'} Call</h2>
-            <div className="mb-2">From: {callModal.callerInfo?.displayName || callModal.callerInfo?.username || 'User'}</div>
-            <div className="flex gap-2 mt-4">
-              <button
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                onClick={handleAcceptCall}
-              >Accept</button>
-              <button
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                onClick={handleRejectCall}
-              >Reject</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

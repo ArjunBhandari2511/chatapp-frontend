@@ -800,7 +800,7 @@ const ChatDashboard = () => {
 
   // Connect to main backend for signaling (Socket.IO)
   useEffect(() => {
-    signalingSocketRef.current = socketio('ws://localhost:5000', {
+    signalingSocketRef.current = socketio('wss://chatapp-backend-tp00.onrender.com', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });

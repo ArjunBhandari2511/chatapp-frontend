@@ -143,7 +143,7 @@ const ChatDashboard = () => {
 
   // Connect to Socket.IO server on mount
   React.useEffect(() => {
-    const socket = io('wss://chatapp-backend-tp00.onrender.com', {
+    const socket = io('ws://localhost:5000', {
       auth: { token: localStorage.getItem('token') },
       transports: ['websocket'],
     });
@@ -1001,9 +1001,9 @@ const ChatDashboard = () => {
   // Start/stop call logic
   useEffect(() => {
     if (!inCall || !callRoom) return;
-    let isCaller = false;
     let cleanup = () => {};
     let ended = false;
+    let hasReceivedReady = false;
 
     const config = {
       iceServers: [
@@ -1031,7 +1031,7 @@ const ChatDashboard = () => {
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          socketRef.current?.emit('signal', {
+          emitWithLog('signal', {
             room: callRoom,
             signal: { candidate: event.candidate }
           });
@@ -1044,27 +1044,31 @@ const ChatDashboard = () => {
       };
 
       // 3. Join the room (for signaling)
-      socketRef.current?.emit('join', { room: callRoom });
+      emitWithLog('join', { room: callRoom });
 
       // 4. Listen for signaling
       const handleSignal = async (data: { signal: any }) => {
         const signal = data.signal;
-        if (signal.ready && pc.signalingState === 'stable') {
-          // I'm the first, create offer
-          isCaller = true;
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socketRef.current?.emit('signal', {
-            room: callRoom,
-            signal: { sdp: pc.localDescription }
-          });
+        if (signal.ready) {
+          if (!hasReceivedReady) {
+            hasReceivedReady = true;
+            if (pc.signalingState === 'stable') {
+              // Only the second peer to receive 'ready' creates the offer
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              emitWithLog('signal', {
+                room: callRoom,
+                signal: { sdp: pc.localDescription }
+              });
+            }
+          }
         }
         if (signal.sdp) {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
           if (signal.sdp.type === 'offer') {
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            socketRef.current?.emit('signal', {
+            emitWithLog('signal', {
               room: callRoom,
               signal: { sdp: pc.localDescription }
             });
@@ -1081,7 +1085,7 @@ const ChatDashboard = () => {
       socketRef.current?.on('signal', handleSignal);
 
       // 5. Ready to signal
-      socketRef.current?.emit('signal', { room: callRoom, signal: { ready: true } });
+      emitWithLog('signal', { room: callRoom, signal: { ready: true } });
 
       // 6. Handle peer leaving
       const handlePeerLeft = () => {

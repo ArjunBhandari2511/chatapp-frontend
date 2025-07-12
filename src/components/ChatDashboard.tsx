@@ -819,10 +819,13 @@ const ChatDashboard = () => {
 
     // Incoming call
     const handleIncoming = (data: { from: any, roomId: string, callType: 'video' | 'audio' }) => {
-      setIncomingCall(data);
+      console.log('[Socket] Received call:incoming', data);
+      // Store 'from' as a string (user ID)
+      setIncomingCall({ ...data, from: data.from });
     };
     // Call accepted
     const handleAccepted = (data: { from: any, roomId: string, callType: 'video' | 'audio' }) => {
+      console.log('[Socket] Received call:accepted', data);
       setCallRoom(data.roomId);
       setCallType(data.callType); // <-- Add this
       setInCall(true);
@@ -831,6 +834,7 @@ const ChatDashboard = () => {
     };
     // Call rejected
     const handleRejected = (data: { from: any, roomId: string }) => {
+      console.log('[Socket] Received call:rejected', data);
       setCallModalOpen(false);
       setInCall(false);
       setCallRoom(null);
@@ -848,7 +852,14 @@ const ChatDashboard = () => {
     };
   }, [toast]);
 
-  // Modal for entering room name when starting a call
+  // Add logging to all emits
+  const emitWithLog = (event: string, payload: any) => {
+    console.log(`[Socket] Emitting ${event}`, payload);
+    socketRef.current?.emit(event, payload);
+  };
+
+  // Use emitWithLog instead of socketRef.current.emit for all call events
+  // Example in CallRoomModal:
   const CallRoomModal = (
     <Dialog open={callModalOpen} onOpenChange={setCallModalOpen}>
       <DialogContent>
@@ -866,17 +877,15 @@ const ChatDashboard = () => {
         <DialogFooter>
           <Button
             onClick={() => {
-              // --- EMIT CALL:REQUEST ---
-              const calleeId = activeChat;
-              socketRef.current?.emit('call:request', {
+              const calleeId = activeChat; // This should be the user ID string
+              emitWithLog('call:request', {
                 to: calleeId,
-                from: currentUser,
+                from: currentUserId, // Use user ID string
                 roomId: roomInput,
                 callType: callType,
               });
               setCallRoom(roomInput);
               setCallModalOpen(false);
-              // Wait for accept/reject
             }}
             disabled={!roomInput.trim()}
           >
@@ -917,9 +926,9 @@ const ChatDashboard = () => {
             onClick={() => {
               // --- EMIT CALL:REJECT ---
               if (!incomingCall) return;
-              socketRef.current?.emit('call:reject', {
-                to: incomingCall.from._id || incomingCall.from.id || incomingCall.from,
-                from: currentUser,
+              emitWithLog('call:reject', {
+                to: incomingCall.from, // This should be the user ID string
+                from: currentUserId, // Use user ID string
                 roomId: incomingCall.roomId,
               });
               setIncomingCall(null);
@@ -957,9 +966,9 @@ const ChatDashboard = () => {
                 return;
               }
               // --- EMIT CALL:ACCEPT ---
-              socketRef.current?.emit('call:accept', {
-                to: pendingIncomingCall.from._id || pendingIncomingCall.from.id || pendingIncomingCall.from,
-                from: currentUser,
+              emitWithLog('call:accept', {
+                to: pendingIncomingCall.from, // This should be the user ID string
+                from: currentUserId, // Use user ID string
                 roomId: joinRoomInput,
                 callType: pendingIncomingCall.callType, // <-- Add this
               });
@@ -1136,6 +1145,11 @@ const ChatDashboard = () => {
       </DialogContent>
     </Dialog>
   );
+
+  // Add logging to all state changes
+  useEffect(() => {
+    console.log('[State] inCall:', inCall, 'callRoom:', callRoom, 'callType:', callType);
+  }, [inCall, callRoom, callType]);
 
 
   return (

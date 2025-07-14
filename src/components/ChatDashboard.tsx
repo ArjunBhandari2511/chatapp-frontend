@@ -16,8 +16,8 @@ import {
   Image as ImageIcon,
   X,
   Paperclip,
-  Phone,
-  Video
+  Video,
+  Phone
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
@@ -31,6 +31,7 @@ import MessageItem from './MessageItem';
 import UploadProgress from './UploadProgress';
 import ImagePreview from './ImagePreview';
 import ProfileSettings from './ProfileSettings';
+import CallModal from './CallModal';
 
 const ChatDashboard = () => {
   const [message, setMessage] = useState('');
@@ -71,20 +72,11 @@ const ChatDashboard = () => {
   const activeChatRef = useRef(activeChat);
   const channelsRef = useRef(channels);
   const directMessagesRef = useRef(directMessages);
-
-  // Call state
-  const [callModalOpen, setCallModalOpen] = useState(false); // Show room name modal
-  const [incomingCall, setIncomingCall] = useState<null | { from: any, roomId: string, callType: 'video' | 'audio' }>(null); // Incoming call info
-  const [inCall, setInCall] = useState(false); // Are we in a call
-  const [callType, setCallType] = useState<'video' | 'audio' | null>(null); // Current call type
-  const [callRoom, setCallRoom] = useState<string | null>(null); // Current call room
-  const [callPeer, setCallPeer] = useState<any>(null); // The other user in the call
-  const [roomInput, setRoomInput] = useState(''); // Room name input
-
-  // Add state for User B's room name entry after Accept
-  const [joinRoomModalOpen, setJoinRoomModalOpen] = useState(false);
-  const [pendingIncomingCall, setPendingIncomingCall] = useState<null | { from: any, roomId: string, callType: 'video' | 'audio' }>(null);
-  const [joinRoomInput, setJoinRoomInput] = useState('');
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [callRoom, setCallRoom] = useState('');
+  const [callPeerUser, setCallPeerUser] = useState<any>(null);
+  const [roomPromptOpen, setRoomPromptOpen] = useState(false);
+  const [roomInput, setRoomInput] = useState('');
 
 
   React.useEffect(() => {
@@ -655,17 +647,6 @@ const ChatDashboard = () => {
     );
   };
 
-  // Call button handlers (open modal)
-  const handleAudioCall = () => {
-    setCallType('audio');
-    setCallModalOpen(true);
-  };
-
-  const handleVideoCall = () => {
-    setCallType('video');
-    setCallModalOpen(true);
-  };
-
   // Helper to get username from JWT if not found in directMessages
   function getUsernameFromJWT() {
     const token = getAuthToken();
@@ -813,347 +794,22 @@ const ChatDashboard = () => {
     };
   }, []);
 
-  // --- SOCKET EVENT HANDLING FOR CALLS ---
-  useEffect(() => {
-    if (!socketRef.current) return;
-
-    // Incoming call
-    const handleIncoming = (data: { from: any, roomId: string, callType: 'video' | 'audio' }) => {
-      console.log('[Socket] Received call:incoming', data);
-      // Store 'from' as a string (user ID)
-      setIncomingCall({ ...data, from: data.from });
-    };
-    // Call accepted
-    const handleAccepted = (data: { from: any, roomId: string, callType: 'video' | 'audio' }) => {
-      console.log('[Socket] Received call:accepted', data);
-      setCallRoom(data.roomId);
-      setCallType(data.callType); // <-- Add this
-      setInCall(true);
-      setCallModalOpen(false);
-      toast({ title: 'Call Accepted', description: 'The user accepted your call.' });
-    };
-    // Call rejected
-    const handleRejected = (data: { from: any, roomId: string }) => {
-      console.log('[Socket] Received call:rejected', data);
-      setCallModalOpen(false);
-      setInCall(false);
-      setCallRoom(null);
-      toast({ title: 'User is Busy', description: 'The user rejected your call.', variant: 'destructive' });
-    };
-
-    socketRef.current.on('call:incoming', handleIncoming);
-    socketRef.current.on('call:accepted', handleAccepted);
-    socketRef.current.on('call:rejected', handleRejected);
-
-    return () => {
-      socketRef.current?.off('call:incoming', handleIncoming);
-      socketRef.current?.off('call:accepted', handleAccepted);
-      socketRef.current?.off('call:rejected', handleRejected);
-    };
-  }, [toast]);
-
-  // Add logging to all emits
-  const emitWithLog = (event: string, payload: any) => {
-    console.log(`[Socket] Emitting ${event}`, payload);
-    socketRef.current?.emit(event, payload);
-  };
-
-  // Use emitWithLog instead of socketRef.current.emit for all call events
-  // Example in CallRoomModal:
-  const CallRoomModal = (
-    <Dialog open={callModalOpen} onOpenChange={setCallModalOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{callType === 'video' ? 'Start Video Call' : 'Start Audio Call'}</DialogTitle>
-          <DialogDescription>Enter a room name to start the call.</DialogDescription>
-        </DialogHeader>
-        <input
-          className="border rounded px-3 py-2 w-full mt-2"
-          placeholder="Room name"
-          value={roomInput}
-          onChange={e => setRoomInput(e.target.value)}
-          autoFocus
-        />
-        <DialogFooter>
-          <Button
-            onClick={() => {
-              const calleeId = activeChat; // This should be the user ID string
-              emitWithLog('call:request', {
-                to: calleeId,
-                from: currentUserId, // Use user ID string
-                roomId: roomInput,
-                callType: callType,
-              });
-              setCallRoom(roomInput);
-              setCallModalOpen(false);
-            }}
-            disabled={!roomInput.trim()}
-          >
-            Start Call
-          </Button>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-
-  // Modal for incoming call
-  const IncomingCallModal = (
-    <Dialog open={!!incomingCall} onOpenChange={open => { if (!open) setIncomingCall(null); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Incoming {incomingCall?.callType === 'video' ? 'Video' : 'Audio'} Call</DialogTitle>
-          <DialogDescription>
-            {incomingCall?.from?.displayName || incomingCall?.from?.username || 'Someone'} is calling you.<br/>
-            Room: <span className="font-mono">{incomingCall?.roomId}</span>
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            onClick={() => {
-              // Instead of joining immediately, prompt for room name
-              setPendingIncomingCall(incomingCall);
-              setIncomingCall(null);
-              setJoinRoomModalOpen(true);
-            }}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            Accept
-          </Button>
-          <Button
-            onClick={() => {
-              // --- EMIT CALL:REJECT ---
-              if (!incomingCall) return;
-              emitWithLog('call:reject', {
-                to: incomingCall.from, // This should be the user ID string
-                from: currentUserId, // Use user ID string
-                roomId: incomingCall.roomId,
-              });
-              setIncomingCall(null);
-            }}
-            variant="destructive"
-          >
-            Reject
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-
-  // Modal for User B to enter room name after Accept
-  const JoinRoomModal = (
-    <Dialog open={joinRoomModalOpen} onOpenChange={setJoinRoomModalOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Join Call</DialogTitle>
-          <DialogDescription>Enter the room name provided by the caller to join the call.</DialogDescription>
-        </DialogHeader>
-        <input
-          className="border rounded px-3 py-2 w-full mt-2"
-          placeholder="Room name"
-          value={joinRoomInput}
-          onChange={e => setJoinRoomInput(e.target.value)}
-          autoFocus
-        />
-        <DialogFooter>
-          <Button
-            onClick={() => {
-              if (!pendingIncomingCall) return;
-              if (joinRoomInput !== pendingIncomingCall.roomId) {
-                toast({ title: 'Room name mismatch', description: 'Please enter the exact room name provided by the caller.', variant: 'destructive' });
-                return;
-              }
-              // --- EMIT CALL:ACCEPT ---
-              emitWithLog('call:accept', {
-                to: pendingIncomingCall.from, // This should be the user ID string
-                from: currentUserId, // Use user ID string
-                roomId: joinRoomInput,
-                callType: pendingIncomingCall.callType, // <-- Add this
-              });
-              setCallRoom(joinRoomInput);
-              setCallType(pendingIncomingCall.callType);
-              setInCall(true);
-              setPendingIncomingCall(null);
-              setJoinRoomModalOpen(false);
-              setJoinRoomInput('');
-            }}
-            disabled={!joinRoomInput.trim()}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            Join Call
-          </Button>
-          <DialogClose asChild>
-            <Button variant="outline" onClick={() => { setPendingIncomingCall(null); setJoinRoomInput(''); }}>Cancel</Button>
-          </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-
-  // --- WEBRTC CALL MODAL AND LOGIC ---
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-
-  // Start/stop call logic
-  useEffect(() => {
-    if (!inCall || !callRoom) return;
-    let cleanup = () => {};
-    let ended = false;
-    let hasReceivedReady = false;
-
-    const config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }
-      ]
-    };
-
-    async function startCall() {
-      // 1. Get local media
-      const localStream = await navigator.mediaDevices.getUserMedia({
-        video: callType === 'video',
-        audio: true
-      });
-      localStreamRef.current = localStream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream;
-      }
-
-      // 2. Create peer connection
-      const pc = new RTCPeerConnection(config);
-      peerConnectionRef.current = pc;
-      localStream.getTracks().forEach(track => {
-        pc.addTrack(track, localStream);
-      });
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          emitWithLog('signal', {
-            room: callRoom,
-            signal: { candidate: event.candidate }
-          });
-        }
-      };
-      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-        }
-      };
-
-      // 3. Join the room (for signaling)
-      emitWithLog('join', { room: callRoom });
-
-      // 4. Listen for signaling
-      const handleSignal = async (data: { signal: any }) => {
-        const signal = data.signal;
-        if (signal.ready) {
-          if (!hasReceivedReady) {
-            hasReceivedReady = true;
-            if (pc.signalingState === 'stable') {
-              // Only the second peer to receive 'ready' creates the offer
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              emitWithLog('signal', {
-                room: callRoom,
-                signal: { sdp: pc.localDescription }
-              });
-            }
-          }
-        }
-        if (signal.sdp) {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-          if (signal.sdp.type === 'offer') {
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            emitWithLog('signal', {
-              room: callRoom,
-              signal: { sdp: pc.localDescription }
-            });
-          }
-        }
-        if (signal.candidate) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-          } catch (e) {
-            // Ignore duplicate candidates
-          }
-        }
-      };
-      socketRef.current?.on('signal', handleSignal);
-
-      // 5. Ready to signal
-      emitWithLog('signal', { room: callRoom, signal: { ready: true } });
-
-      // 6. Handle peer leaving
-      const handlePeerLeft = () => {
-        if (!ended) {
-          toast({ title: 'Call ended', description: 'The other user has left the call.' });
-          endCall();
-        }
-      };
-      socketRef.current?.on('peer-left', handlePeerLeft);
-
-      // Cleanup function
-      cleanup = () => {
-        ended = true;
-        socketRef.current?.off('signal', handleSignal);
-        socketRef.current?.off('peer-left', handlePeerLeft);
-        pc.close();
-        peerConnectionRef.current = null;
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach(track => track.stop());
-          localStreamRef.current = null;
-        }
-        if (localVideoRef.current) localVideoRef.current.srcObject = null;
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-      };
+  // Handler for video call button
+  const handleVideoCallClick = () => {
+    // If DM, prefill room name as deterministic value
+    const user = directMessages.find(u => (u._id || u.id) === activeChat);
+    if (user && currentUserId) {
+      const room = [currentUserId, user._id || user.id].sort().join('-');
+      setRoomInput(room);
+      setCallPeerUser(user);
+      setRoomPromptOpen(true);
+    } else {
+      // For channels, let user enter a room name
+      setRoomInput('');
+      setCallPeerUser(null);
+      setRoomPromptOpen(true);
     }
-    startCall();
-    return () => cleanup();
-    // eslint-disable-next-line
-  }, [inCall, callRoom, callType]);
-
-  // End call handler
-  function endCall() {
-    setInCall(false);
-    setCallRoom(null);
-    setCallType(null);
-    setCallPeer(null);
-    // Streams and peer connection cleaned up in effect cleanup
-  }
-
-  // --- Call Modal UI ---
-  const CallModal = (
-    <Dialog open={inCall} onOpenChange={open => { if (!open) endCall(); }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{callType === 'video' ? 'Video Call' : 'Audio Call'}</DialogTitle>
-          <DialogDescription>Room: <span className="font-mono">{callRoom}</span></DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col items-center gap-4">
-          <div className="flex gap-2 w-full justify-center">
-            <video ref={localVideoRef} autoPlay playsInline muted className="rounded bg-black w-40 h-32 object-cover" style={{ display: callType === 'video' ? 'block' : 'none' }} />
-            <video ref={remoteVideoRef} autoPlay playsInline className="rounded bg-black w-40 h-32 object-cover" style={{ display: callType === 'video' ? 'block' : 'none' }} />
-            {callType === 'audio' && (
-              <>
-                <audio ref={localVideoRef} autoPlay muted />
-                <audio ref={remoteVideoRef} autoPlay />
-              </>
-            )}
-          </div>
-          <Button onClick={endCall} variant="destructive" className="mt-2">Leave Call</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-
-  // Add logging to all state changes
-  useEffect(() => {
-    console.log('[State] inCall:', inCall, 'callRoom:', callRoom, 'callType:', callType);
-  }, [inCall, callRoom, callType]);
+  };
 
 
   return (
@@ -1435,48 +1091,29 @@ const ChatDashboard = () => {
                     return null;
                   })()}
                 </div>
-
-                {/* Call buttons - only show for direct messages */}
-                {(() => {
-                  const user = directMessages.find(u => (u._id || u.id) === activeChat);
-                  if (user) {
-                    return (
-                      <div className="flex items-center space-x-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={handleAudioCall}
-                              className="h-8 w-8 text-gray-600 hover:text-green-600 hover:bg-green-50"
-                            >
-                              <Phone className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Start audio call</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={handleVideoCall}
-                              className="h-8 w-8 text-gray-600 hover:text-blue-600 hover:bg-blue-50"
-                            >
-                              <Video className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Start video call</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+                {/* Call Buttons */}
+                <div className="flex items-center gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label="Start Video Call" onClick={handleVideoCallClick}>
+                        <Video className="h-6 w-6 text-gray-600" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span>Start Video Call</span>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label="Start Audio Call">
+                        <Phone className="h-6 w-6 text-gray-600" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span>Start Audio Call</span>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
             </div>
 
@@ -1648,10 +1285,48 @@ const ChatDashboard = () => {
         onProfileUpdate={handleProfileUpdate}
       />
 
-      {CallRoomModal}
-      {IncomingCallModal}
-      {JoinRoomModal}
-      {inCall && CallModal}
+      {/* Room Prompt Dialog */}
+      <Dialog open={roomPromptOpen} onOpenChange={setRoomPromptOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enter Room Name</DialogTitle>
+            <DialogDescription>
+              Enter a room name to start/join a video call. For direct messages, a unique room is prefilled.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={roomInput}
+            onChange={e => setRoomInput(e.target.value)}
+            placeholder="Room name"
+            className="mb-4"
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setCallRoom(roomInput.trim());
+                setRoomPromptOpen(false);
+                setCallModalOpen(true);
+              }}
+              disabled={!roomInput.trim()}
+            >
+              Join Call
+            </Button>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Call Modal */}
+      <CallModal
+        open={callModalOpen}
+        onClose={() => setCallModalOpen(false)}
+        room={callRoom}
+        currentUser={currentUser}
+        peerUser={callPeerUser}
+        socket={socketRef.current}
+      />
 
 
     </div>

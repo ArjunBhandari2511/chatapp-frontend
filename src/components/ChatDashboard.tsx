@@ -826,7 +826,7 @@ const ChatDashboard = () => {
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-gray-900">ChatApp</h1>
+            <h1 className="text-xl font-bold text-gray-900">Whispr</h1>
             <Button
               variant="ghost"
               size="sm"
@@ -1036,7 +1036,7 @@ const ChatDashboard = () => {
               {currentUserProfile?.displayName || currentUserProfile?.username || currentUser?.username || 'User'}
             </div>
             <div className="text-xs text-gray-500 truncate">
-              {currentUserProfile?.status || 'Hey there! I am using ChatSpark.'}
+              {currentUserProfile?.status || 'Hey there! I am using Whispr.'}
             </div>
           </div>
           <Button
@@ -1258,11 +1258,11 @@ const ChatDashboard = () => {
                 <path d="M20 44h24M24 28h16M28 36h8" stroke="#6366f1" strokeWidth="2" strokeLinecap="round"/>
                 <circle cx="32" cy="24" r="4" fill="#6366f1"/>
               </svg>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Welcome to ChatSpark!</h2>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">Welcome to Whispr!</h2>
               <p className="text-gray-500 mb-4 text-center max-w-md">
-                Select a channel or a user from the sidebar to start chatting.<br/>
+                Select a channel or a user from the sidebar to start whispering.<br/>
                 You can create new channels, send direct messages, and chat in real time.<br/>
-                <span className="text-indigo-500 font-medium">Enjoy your conversations!</span>
+                <span className="text-indigo-500 font-medium">Enjoy your conversations on Whispr!</span>
               </p>
             </div>
           </div>

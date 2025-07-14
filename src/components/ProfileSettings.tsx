@@ -67,7 +67,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       setProfile(userProfile);
       setDisplayName(userProfile.displayName || userProfile.username || '');
       setAbout(userProfile.about || '');
-      setStatus(userProfile.status || 'Hey there! I am using ChatSpark.');
+      setStatus(userProfile.status || 'Hey there! I am using Whispr.');
     } catch (error: any) {
       toast({
         title: 'Error',

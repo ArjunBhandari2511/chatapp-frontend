@@ -811,6 +811,13 @@ const ChatDashboard = () => {
     }
   };
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, messagesLoading]);
+
 
   return (
     <div className="h-screen flex bg-gray-50">
@@ -1127,28 +1134,30 @@ const ChatDashboard = () => {
                 ) : messages.length === 0 ? (
                   <div className="text-gray-400 text-center">No messages yet.</div>
                 ) : (
-                  messages.map((msg) => {
-                    const isCurrentUser = msg.sender?._id === currentUserId;
-                    const channel = channels.find(c => (c._id || c.id) === activeChat);
-                    const roomId = channel 
-                      ? channel._id || channel.id 
-                      : activeChat && currentUserId 
-                        ? [currentUserId, activeChat].sort().join('-')
-                        : '';
-                    
-                    return (
-                      <MessageItem
-                        key={msg._id || msg.id}
-                        message={msg}
-                        isCurrentUser={isCurrentUser}
-                        onMessageEdit={handleMessageEdit}
-                        onMessageDelete={handleMessageDelete}
-                        roomId={roomId}
-                        socket={socketRef.current}
-                        currentUserId={currentUserId || ''}
-                      />
-                    );
-                  })
+                  <>
+                    {messages.map((msg) => {
+                      const isCurrentUser = msg.sender?._id === currentUserId;
+                      const channel = channels.find(c => (c._id || c.id) === activeChat);
+                      const roomId = channel 
+                        ? channel._id || channel.id 
+                        : activeChat && currentUserId 
+                          ? [currentUserId, activeChat].sort().join('-')
+                          : '';
+                      return (
+                        <MessageItem
+                          key={msg._id || msg.id}
+                          message={msg}
+                          isCurrentUser={isCurrentUser}
+                          onMessageEdit={handleMessageEdit}
+                          onMessageDelete={handleMessageDelete}
+                          roomId={roomId}
+                          socket={socketRef.current}
+                          currentUserId={currentUserId || ''}
+                        />
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </>
                 )}
               </div>
             </ScrollArea>

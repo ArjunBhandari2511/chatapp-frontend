@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from './ui/dialog';
 import { X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface CallModalProps {
   open: boolean;
@@ -18,6 +19,7 @@ const CallModal: React.FC<CallModalProps> = ({ open, onClose, room, currentUser,
   const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // ICE servers config
   const config = {
@@ -102,6 +104,10 @@ const CallModal: React.FC<CallModalProps> = ({ open, onClose, room, currentUser,
     const handlePeerLeft = () => {
       setError('The other user has left the call.');
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      toast({ title: 'Call Ended', description: 'The other user has left the call.', variant: 'destructive' });
+      setTimeout(() => {
+        onClose();
+      }, 1500);
     };
     socket.on('signal', handleSignal);
     socket.on('peer-left', handlePeerLeft);

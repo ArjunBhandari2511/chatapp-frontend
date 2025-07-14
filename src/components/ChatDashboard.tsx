@@ -891,7 +891,9 @@ const ChatDashboard = () => {
             </div>
             <div className="space-y-1">
               {loading ? (
-                <div>Loading channels...</div>
+                <div className="flex justify-center items-center h-12">
+                  <Loader2 className="animate-spin h-6 w-6 text-gray-400" />
+                </div>
               ) : (
                 <>
                   {channels
@@ -969,7 +971,9 @@ const ChatDashboard = () => {
             </div>
             <div className="space-y-1">
               {loading ? (
-                <div>Loading users...</div>
+                <div className="flex justify-center items-center h-12">
+                  <Loader2 className="animate-spin h-6 w-6 text-gray-400" />
+                </div>
               ) : (
                 <>
                   {directMessages
